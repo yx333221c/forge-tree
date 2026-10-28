@@ -47,7 +47,7 @@ function toggleAuto(toggle) {
 	needCanvasUpdate=true
 }
 
-const MS_DISPLAYS = ["ALL", "LAST, AUTO, INCOMPLETE", "AUTOMATION, INCOMPLETE", "INCOMPLETE", "NONE"];
+const MS_DISPLAYS = ["全部", "最近/自动/未完成", "自动/未完成", "仅未完成", "不显示"];
 
 const MS_SETTINGS = ["always", "last", "automation", "incomplete", "never"];
 
@@ -78,4 +78,4 @@ function milestoneShown(layer, id) {
 	return false;
 }
 
-let formatOption = (opt) => opt ? 'ON' : 'OFF'
+let formatOption = (opt) => opt ? '开' : '关'

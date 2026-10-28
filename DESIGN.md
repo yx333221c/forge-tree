@@ -65,37 +65,53 @@ hookCount(name)                    // 已注册的钩子数（调试用）
 "heatFlat"      加法，给 热量/秒 一个平坦增量（默认 0）
 "heat"          乘法，热量/秒
 "coreGain"      乘法，row0 炉芯产出 gainMult
-"coreExpBonus"  加法，炉芯公式指数加成（基础 0.5）
+"coreExpBonus"  加法，炉芯公式**指数**加成（基础 0.5）—— 见 §3.5
 "ingotGain"     乘法，锭条产出 gainMult
-"ingotExpBonus" 加法，锭条公式指数加成（基础 0.5）
+"ingotExpBonus" 加法，锭条公式**指数**加成（基础 0.5）—— 见 §3.5
 "catalystCost"  乘法，反应层（static）的 gainMult —— 注意 static 层里它**乘在成本上**，<1 才是变强
+"catalystDirect" 乘法，static 层 directMult（>1 变强，static 的 directMult 直接乘产出）
 "chrononGain"   乘法，时序产出 gainMult
 "stellarGain"   乘法，星核产出 gainMult
 "startPoints"   乘法，getStartPoints()（被高层重置后的初始热量）
 "ventValue"     乘法，泄压获得的额外热量倍数
-"pressureRate"  加法，炉压增速加成（基础 3/s）
+"pressureRate"  乘法，炉压增速倍数（基础 3/s）→ 实际增速 = 3 × foldMult("pressureRate",1)
 "pressureExp"   加法，炉压指数加成（基础 0.35）
 "buyableCost"   乘法，所有层 buyable 成本折扣（<1 变强）
 "upgradeCost"   乘法，所有层 upgrade 成本折扣
-"globalAdd"     预留：无
+"hPassiveAdd"   加法，熔炉 passiveGeneration 加成（基础 0）
+"millPassiveAdd" 加法，锻造 passiveGeneration 加成（基础 0）
 
 // 3.3 工具
 D(x)                 => new Decimal(x)
 hasAch(id)           => hasAchievement("ach", id)
 achievementCount()   => player.ach.achievements.length
-forgeDoReset(layer, resettingLayer, keep)
-   // 统一重置规则：仅当 layers[resettingLayer].row > layers[layer].row 时执行 layerDataReset
-   // 并且**永远保留** unlocked / total / best / milestones / counters（见 §4）
-   // keep 里额外列出的键也会被保留
-isChallengeActive(layer, id)     => inChallenge(layer, id)
-fmtTarget(text, cur, req)        => 生成 "目标：x / y" 这样的一行 HTML
-decimalKeep(layer, keys)         // 内部使用
-
-// 3.4 每条层必须遵守的“计数器”约定（供 stats 层与成就读取；命名固定）
-player.<l>.resets    Decimal  本层主动重置（prestige）次数
-player.<l>.spends    Decimal  本层货币消费次数（可选）
-player.h.vents       Decimal  泄压次数（h 层专用）
+completedChallengeCount() / maxedChallengeCount() / totalResets()  // 只读统计
+autoOn(flag)         => flag && 未处于挑战 t15（自动化判定必须走它）
+buyableDebuff(x)     => 挑战 t13 时减半
+buyableCostFinal(x)  => x × foldMult("buyableCost",1)
+upgradeCostFinal(x)  => x × foldMult("upgradeCost",1)
+fmtTarget(cur,req,unit) / fmtProgress(name,cur,req,unit) / pct(x) / timesFormat(x) / fmtLeft(sec)
 ```
+
+// 3.4 重置助手 + 计数器约定
+forgeDoReset(layer, resettingLayer, keep)
+   // 统一重置规则：仅当 layers[resettingLayer].row > layers[layer].row 时执行 layerDataReset，
+   // 并**永远保留** unlocked / total / best / milestones / resets / vents / ignited；
+   // keep 数组里额外列出的键也会被保留。
+forgeForceReset(layer, keep)       // 无视行号，强制清空（保留上述字段）
+player.<l>.resets    Decimal  本层主动重置（prestige）次数
+player.h.vents       Decimal  泄压次数（h 层专用）
+
+## 3.5 关键引擎语义（照此实现，否则公式会反直觉）
+
+1. **normal 层**：`gain = (baseAmount / requires) ^ exponent × gainMult ^ gainExp × directMult`，取 floor。
+   → 所以 `coreExpBonus` 这类**指数加成**必须加到 `gainExp()` 上（`gainExp(){ return D(0.5 + foldAdd("coreExpBonus",0)) }`），
+     并且此时 `exponent` 字段要设为 **1**（否则 `^exponent` 会二次幂，导致强度失控）。
+   → 约定：凡是要用指数加成的 normal 层，`exponent: 1`，指数完全由 `gainExp()` 提供（基础值写进该函数）。
+2. **static 层**：`gainMult`/`gainExp` 作用在**成本**上（`gainMult` 越大越贵），`directMult` 直接乘**产出**。
+3. 比较一律用 `.gt/.gte/.lt/.lte`；`player` 里凡是数值必须是 `Decimal`，布尔必须是 `boolean`。
+4. `doNotCallTheseFunctionsEveryTick` 不需要加（官方函数引擎已处理）；**不要**自创会被引擎每 tick 调用的函数名。
+5. `tmp` 只在渲染里用；跨层读取一律 `player.x` / `tmp.<layer>.resetGain`（引擎每 tick 更新）。
 
 ## 4. 重置规则（务必精确实现）
 
@@ -325,3 +341,33 @@ doReset(resettingLayer) {
 | 点燃恒星（通关） | 2–5 h（自动化后） |
 
 离线收益 4h 上限；`maxTickLength()` 保持 3600。
+
+## 9. 引擎本地化维护规约（i18n 已交付，后续改动必须遵守）
+
+1. 只用 edit 工具逐处替换字面量；**禁止** `Set-Content`/`Out-File`/`-replace|Set-Content` 写文件（PowerShell 会毁 UTF-8 中文，本项目已实测损坏过一次）。
+2. 绝不改动：变量名/函数名、对象 key、CSS 类名、`player.*`/`tmp.*`、localStorage key 与 `getModID`、`MS_SETTINGS`、主题内部 id（default/aqua）、`type=="normal"/"static"` 等分支值、format/formatWhole 的输出。
+3. 保留英文原文：署名行（The Modding Tree / Prestige Tree by …）、两个 Discord 链接名、所有 URL、以及 `I WANT TO RESET THIS` 的**比较串**（prompt 提示语可译，要求玩家输入的串必须逐字节不变）。
+4. 模板里的 `{{ }}`、`${}`、`v-if/v-for/v-bind/v-on/v-html/v-model`、HTML 标签一律原样保留；不新增/删除换行，不新增全局标识符。
+5. 自检 A（结构）：`git cat-file blob HEAD:<f>` 与工作版**各自剥离全部非 ASCII 后逐行比对**，剩余 ASCII 差异只能出现在被替换位置；同时比对 `{{`、`v-*`、`${`、`<span|div|button` 计数与行数。
+6. 自检 B（语法/编码）：js 文件逐个 `node --check`；`s.split('\uFFFD').length-1 === 0` 且无 BOM；html 跳过 --check。
+7. 自检 C（规模）：`git diff --numstat --ignore-cr-at-eol` 每文件 insertions == deletions；不等即动了结构，回滚该处。（仓库 `core.autocrlf=true`，必须加 `--ignore-cr-at-eol`）
+8. 分支/返回值函数（`challengeButtonText`、`prestigeButtonText`）只换引号内文本，分支个数与三元层数不得变化。
+
+## 10. 分层开发的加载期约束（已被 harness 抓到，全员必须遵守）
+
+`index.html` / harness 的脚本顺序里，**modFiles 在 `NumberFormating.js` 之前执行**。因此 addLayer 那一刻 `format / formatWhole / formatTime` 尚不存在，`player` / `tmp` 也尚未构造。
+
+1. **加载期求值的字符串属性**（`description:`、`title:`、`requirementDescription:` 等写成字符串或字符串拼接的属性）**禁止调用 format/formatWhole**。静态文案直接把数字写进字符串（`String(H_BAL.heat11)`），动态数值改成函数 `description() { return "…" + format(x) }`。
+2. 加载期禁止调用任何依赖 `player`/`tmp` 的东西（包括 `hasUpgrade(...)`）；写进函数体即安全。
+3. `D(...)`、`new Decimal(...)`、`registerHook(name, fn)`、`addLayer` 在加载期可用（fn 体不是加载期执行）。
+4. 顶层不要写 `var X = format(...)` 这类求值语句。
+5. **跨层 debuff 判定一律用 `inTime(id)` / `forgeInChallenge(layer, id)`**（helpers 提供），不要裸用 `inChallenge`：某层文件缺失时它会抛异常。
+6. `doNotCallTheseFunctionsEveryTick` 在 mod.js 维护：我们自己写的、有副作用的函数名要登记进去。
+7. 每人交稿前必须跑：`node tools/harness.js`，要求「执行出错的文件」为空、`layers` 里出现你的层 id。
+
+### 已验证的引擎语义（避免误传）
+- upgrade/buyable 上的 `effect()`、`cost()` **每 tick 都会重新求值**（vm 探针实测：连跑 3 次 updateTemp，effect() 被调用 3 次，返回 Decimal 也正常）。跨层加成走钩子只为职责分离。
+- `player.<layer>.activeChallenge` 存的是**数字** id；`inChallenge(layer, id)` 内部已做 toNumber，可放心传数字。
+- `tmp.<layer>.buyables[id]` 只有 `cost / effect / canBuy / unlocked / purchaseLimit`，**没有** `amount`/`limit`。持有量用 `getBuyableAmount(layer,id)`。
+- normal 层：`gain=(base/requires)^exponent × gainMult^gainExp × directMult`；要「指数加成」就把 `exponent` 设 1、指数写进 `gainExp()`。static 层：`gainMult` 乘在**成本**上、`directMult` 乘在**产出**上。
+

@@ -33,7 +33,7 @@ function changeTheme() {
 	document.body.style.setProperty("--locked", colors_theme["locked"]);
 }
 function getThemeName() {
-	return options.theme? options.theme : "default";
+	return options.theme == "aqua" ? "水蓝" : "默认";
 }
 
 function switchTheme() {

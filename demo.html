@@ -44,18 +44,18 @@
 		<canvas id="treeCanvas" class="canvas" v-if="!(tmp.gameEnded && !player.keepGoing)"></canvas>
 
 		<div v-if="false" id="loadingSection" class="fullWidth">
-			<h1>Loading... (If this takes too long it means there was a serious error!)←</h1>
+			<h1>加载中……（如果卡在这里太久，说明出现了严重错误！）←</h1>
 		</div>
 		<div class="vl" v-if="player.navTab !== 'none' && tmp.other.splitScreen && player.tab!='none' && !(tmp.gameEnded && !player.keepGoing)"></div>
 		<div v-if="(tmp.gameEnded && !player.keepGoing)" class="fullWidth">
 			<br>
 			<h2>{{modInfo.name}} {{VERSION.withoutName}}</h2><br><br>
 			<h3 v-html="modInfo.winText"></h3><br>
-			<h3>Please check the Discord to see if there are new content updates!</h3><br><br>
-			<div v-if="!player.timePlayedReset">It took you {{formatTime(player.timePlayed)}} to beat the game.</div>
+			<h3>请到 Discord 看看有没有新的内容更新！</h3><br><br>
+			<div v-if="!player.timePlayedReset">你用时 {{formatTime(player.timePlayed)}} 通关了这款游戏。</div>
 			<br>
-			<button class="longUpg can" onclick="hardReset(true)">Play Again</button>&nbsp;&nbsp;&nbsp;&nbsp;<button
-				class="longUpg can" onclick="keepGoing()">Keep Going</button>
+			<button class="longUpg can" onclick="hardReset(true)">重新开始</button>&nbsp;&nbsp;&nbsp;&nbsp;<button
+				class="longUpg can" onclick="keepGoing()">继续游玩</button>
 			<br><br><br>
 			<span v-if="modInfo.discordLink"><a class="link" v-bind:href="modInfo.discordLink"
 					target="_blank">{{modInfo.discordName}}</a><br></span>
