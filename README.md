@@ -38,6 +38,11 @@ node tools/preview.js --check         # 不起服务，静态检查 index.html �
 也可以直接用浏览器打开 `index.html`，但注意部分浏览器在 `file://` 下会禁用
 localStorage，此时存档无法保存——用上面的本地服务或线上地址更稳。
 
+> **需要联网**：页面从 `unpkg.com` 加载 Vue 2.7.16（上游 TMT 模板的既有做法），
+> 这是承重的——取不到 Vue 就会白屏；另有一个 `fonts.googleapis.com` 的字体链接，
+> 取不到只影响字形。若你在网络受限的环境里玩，可把 Vue 下载后放到本地并把
+> `index.html` 里的 `<script src>` 改成本地路径。
+
 > 站点由 GitHub Pages 的 legacy 构建发布。仓库根放了空的 `.nojekyll`，
 > 让 Pages 跳过 Jekyll、逐字节直传静态文件（`js/`、`css/` 与 `index.html` 全部使用相对路径，
 > 因此部署在 `/forge-tree/` 子路径下也能正常加载）。

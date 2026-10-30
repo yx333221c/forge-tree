@@ -94,7 +94,8 @@ Infinity 从未出现、NaN 干净、运行期错误 0，`isEndgame()` 为 true�
 node tools/preview.js --check           # 静态检查 index.html 引用的每个文件是否存在（不需要起服务器）
 node tools/preview.js --port=8123       # 起 HTTP 服务
 ```
-`--check` 已验证：全部 script/link 均 OK，唯一外链是 `unpkg.com/vue@2.7.16`（TMT 原样保留）。
+`--check` 已验证：本地 36 项 script/link 全部存在、缺失 0；另有 **2 个外链**需联网 ——
+`unpkg.com/vue@2.7.16`（**承重**：Vue 取不到就白屏）与 `fonts.googleapis.com` 的 Inconsolata 字体（非承重，取不到只是字形回退）。
 
 ## 交稿前的最小验收串
 
