@@ -1062,7 +1062,9 @@ const BOT_SRC = String.raw`
 				var target = t0 + (t1 - t0) * i / (n - 1);
 				var k = 0;
 				while (k < s.length - 1 && s[k + 1].t < target) k++;
-				out.push({ t: s[k].t, v: s[k].v });
+				// 必须记 target 而不是 s[k].t：记原始时间等于没做等距重采样，
+				// dt 会随采样密度变化，下面的「每秒多少个数量级」判据就跟着漂。
+				out.push({ t: target, v: s[k].v });
 			}
 			var slopes = [], curv = [];
 			for (var a = 1; a < out.length; a++) {
@@ -1071,26 +1073,52 @@ const BOT_SRC = String.raw`
 				slopes.push((out[a].v - out[a - 1].v) / dt);   // 每模拟秒涨多少个数量级
 			}
 			for (var b = 1; b < slopes.length; b++) curv.push(slopes[b] - slopes[b - 1]);
-			var maxSlope = 0, lastThird = 0, firstThird = 0;
+			var maxSlope = 0;
 			for (var c = 0; c < slopes.length; c++) { if (slopes[c] > maxSlope) maxSlope = slopes[c] }
-			var third = Math.floor(slopes.length / 3) || 1;
-			for (var d0 = 0; d0 < third; d0++) firstThird += slopes[d0];
-			for (var d1 = slopes.length - third; d1 < slopes.length; d1++) lastThird += slopes[d1];
-			firstThird /= third; lastThird /= third;
+			// 分段统计一律用**中位数**，不用求和/最大值：
+			//   「解锁新层」会让 log10 一次跳几十个数量级（台阶），那是合法成长，不是发散。
+			//   用 max 或 mean 都会被这一个点主导 —— 实测同一份存档，20 分钟档判失控、
+			//   45 分钟档不判，纯粹因为重采样间隔不同导致台阶摊开后的斜率不同。
+			var third = Math.max(1, Math.floor(slopes.length / 3));
+			function median(arr) {
+				var a = arr.slice().sort(function (x, y) { return x - y });
+				var m = Math.floor(a.length / 2);
+				return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+			}
+			var firstThird = median(slopes.slice(0, third));
+			var lastThird = median(slopes.slice(slopes.length - third));
+			var ratio = firstThird > 0 ? lastThird / firstThird : (lastThird > 0 ? Infinity : 0);
+			// 「持续加速」的第二条件：末段里有多大比例的斜率明显高于首段中位数。
+			// 单靠 ratio 不够 —— 一次跳档就能把末段中位数抬高，但只有少数区间受影响。
+			var tailThresh = Math.max(firstThird * 3, 1e-9);
+			var tailArr = slopes.slice(slopes.length - third);
+			var tailBig = 0;
+			for (var g = 0; g < tailArr.length; g++) if (tailArr[g] > tailThresh) tailBig++
+			tailBig = tailArr.length ? tailBig / tailArr.length : 0;
 			var maxCurv = 0;
 			for (var e = 0; e < curv.length; e++) if (Math.abs(curv[e]) > maxCurv) maxCurv = Math.abs(curv[e]);
 			var end = out[out.length - 1];
+			// 999 是「产量已发散成 Infinity」的哨兵值，出现即判失控，不走形状分析
+			var diverged = s.some(function (p) { return p.v >= 900 });
 			return {
 				points: out.length,
+				sampleSpanSec: (t1 - t0) / (n - 1),
 				startLog10: out[0].v,
 				endLog10: end.v,
 				maxSlopePerSec: maxSlope,
 				slopeFirstThird: firstThird,
 				slopeLastThird: lastThird,
 				slopeRatio: firstThird > 0 ? lastThird / firstThird : null,
+				slopeTailShare: tailBig,
 				maxCurvature: maxCurv,
-				// 判定：末段斜率相对首段放大到 100 倍以上，或单秒斜率超过 1 个数量级 → 疑似失控
-				runaway: (maxSlope > 1) || (firstThird > 0 && lastThird / firstThird > 100),
+				diverged: diverged,
+				// 失控 = 末段中位斜率比首段陡 4 倍以上，**且**末段过半区间都在加速。
+				// 两个独立条件都要满足，阈值按实测数据校准（不是拍脑袋）：
+				//   合法侧最大值  ratio 2.91 / share 0.46（本存档 20 分钟真实曲线）
+				//   失控侧最小值  ratio 6.35 / share 0.62（当年 1e73 爆炸的形状）
+				// 取 4 与 0.5 让两侧各留约 1.4 倍余量；单靠任一条件都会被
+				// 「解锁新层造成的一次跳档」误触发（跳档能把 ratio 抬到 60+）。
+				runaway: diverged || (ratio > 4 && tailBig > 0.5),
 			};
 		},
 		budgetSnapshot: function () {
@@ -2035,12 +2063,14 @@ function printTextReport(report, args) {
 		const ca = report.curveAnalysis;
 		console.log("  曲线形状判定（§8.5 规则 3：看形状不看绝对值）:");
 		console.log("    log10(热量/秒): " + ca.startLog10.toFixed(2) + " → " + ca.endLog10.toFixed(2) +
-			"   最大斜率 " + ca.maxSlopePerSec.toFixed(4) + " 数量级/秒" +
-			"   首段/末段斜率 " + ca.slopeFirstThird.toExponential(2) + " / " + ca.slopeLastThird.toExponential(2) +
-			(ca.slopeRatio ? "  比值 " + ca.slopeRatio.toFixed(1) + "×" : ""));
+			"   首段/末段中位斜率 " + ca.slopeFirstThird.toExponential(2) + " / " + ca.slopeLastThird.toExponential(2) +
+			(ca.slopeRatio ? "  比值 " + ca.slopeRatio.toFixed(1) + "×" : "") +
+			"   末段加速区间 " + ((ca.slopeTailShare || 0) * 100).toFixed(0) + "%" +
+			"   采样间距 " + (ca.sampleSpanSec ? ca.sampleSpanSec.toFixed(0) + "s" : "?") +
+			(ca.diverged ? "   [检测到 Infinity 采样点]" : ""));
 		console.log("    → " + (ca.runaway
-			? "✗ 疑似失控：斜率自身在快速变陡（末段/首段 " + (ca.slopeRatio ? ca.slopeRatio.toFixed(0) : "?") + "×，峰值 " + ca.maxSlopePerSec.toFixed(3) + "/秒）"
-			: "✓ 正常增量成长：斜率平稳上升，未见自乘发散"));
+			? "✗ 疑似失控：末段整体持续加速（比值 " + (ca.slopeRatio ? ca.slopeRatio.toFixed(1) : "?") + "×、加速区间 " + ((ca.slopeTailShare || 0) * 100).toFixed(0) + "%），不是单次跳档"
+			: "✓ 正常增量成长：未见持续加速（单次跳档不计入）"));
 	}
 	if (report.staticBudgetViolations && report.staticBudgetViolations.length) {
 		console.log("  buyable 预算（§8.5 规则 1：per^limit ≤ 1e6）✗ 超出的条目:");
