@@ -26,13 +26,21 @@ fork 自 TMT 模板，游戏内容全部为原创，含五层科技树、六个�
 
 ## 跑起来
 
-直接用浏览器打开 `index.html` 即可（部分浏览器在 `file://` 下会禁用 localStorage，
-此时用内置的本地服务）：
+**在线直接玩：<https://yx333221c.github.io/forge-tree/>**（GitHub Pages，无需安装任何东西）
+
+本地跑法有二：
 
 ```
-node tools/preview.js --port=8123     # 然后打开 http://localhost:8123
+node tools/preview.js --port=8123     # 起本地服务，然后打开 http://localhost:8123
 node tools/preview.js --check         # 不起服务，静态检查 index.html 的资源是否 404
 ```
+
+也可以直接用浏览器打开 `index.html`，但注意部分浏览器在 `file://` 下会禁用
+localStorage，此时存档无法保存——用上面的本地服务或线上地址更稳。
+
+> 站点由 GitHub Pages 的 legacy 构建发布。仓库根放了空的 `.nojekyll`，
+> 让 Pages 跳过 Jekyll、逐字节直传静态文件（`js/`、`css/` 与 `index.html` 全部使用相对路径，
+> 因此部署在 `/forge-tree/` 子路径下也能正常加载）。
 
 ## 开发与验证
 
