@@ -55,6 +55,11 @@ function buyUpg(layer, id) {
 	let upg = tmp[layer].upgrades[id]
 	if (!player[layer].unlocked || player[layer].deactivated) return
 	if (!tmp[layer].upgrades[id].unlocked) return
+	// tmp 是上一帧算的，同一个 gameLoop 里连续买两个升级时它是陈旧的。
+	// autobuyUpgrades 用「实时 canAfford()」筛选，但互斥升级是靠 unlocked() 表达的，
+	// 于是两个互斥项会在同一 tick 内都被买走（实测：h 31/32、m 31/32、r 23/24）。
+	// 这里补一次实时校验：只在真正购买时调用，不影响每帧开销。
+	if (typeof layers[layer].upgrades[id].unlocked === "function" && layers[layer].upgrades[id].unlocked() !== true) return
 	if (player[layer].upgrades.includes(id)) return
 	if (upg.canAfford === false) return
 	let pay = layers[layer].upgrades[id].pay

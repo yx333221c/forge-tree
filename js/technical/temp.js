@@ -160,6 +160,12 @@ function setupBuyables(layer) {
 	for (id in layers[layer].buyables) {
 		if (isPlainObject(layers[layer].buyables[id])) {
 			let b = layers[layer].buyables[id]
+			// 幂等保护：本函数会把 b.cost 替换成读 b.actualCostFunction 的包装。
+			// 若被调用第二次，就会把「上一轮的包装」当作 actualCostFunction 存下来，
+			// 于是 cost → actualCostFunction → cost → … 无限递归（RangeError）。
+			// 浏览器里只会在页面加载时跑一次，所以真人玩家碰不到；
+			// 但任何重复初始化（测试桩、热重载、二次 load()）都会炸，故在此兜住。
+			if (b.__costWrapped) continue
 			b.actualCostFunction = b.cost
 			b.cost = function(x) {
 				x = (x === undefined ? player[this.layer].buyables[this.id] : x)
@@ -170,6 +176,7 @@ function setupBuyables(layer) {
 				x = (x === undefined ? player[this.layer].buyables[this.id] : x)
 				return layers[this.layer].buyables[this.id].actualEffectFunction(x)
 			}
+			b.__costWrapped = true
 		}
 	}
 }
