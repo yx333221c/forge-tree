@@ -28,7 +28,7 @@ const FILES = [
 	"js/Forge/h.js", "js/Forge/m.js", "js/Forge/r.js", "js/Forge/t.js", "js/Forge/x.js",
 	"js/Forge/ach.js", "js/Forge/stats.js",
 	"js/utils.js", "js/technical/temp.js",            //  lead 的两处引擎修复
-	"css/system-style.css", "index.html", "DESIGN.md", "tools/README.md",
+	"css/system-style.css", "index.html", "DESIGN.md", "README.md", "tools/README.md",
 	"tools/harness.js", "tools/sim.js", "tools/preview.js", "tools/vet.js",
 	"tools/test-mid.js", "tools/test-side.js", "tools/test-top.js", "tools/test-endgame.js",
 ]

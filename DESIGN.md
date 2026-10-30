@@ -302,7 +302,9 @@ doReset(resettingLayer) {
 ### 5.6 `ach` 铭刻（side，**side-layers**）
 
 - `row:"side"`，`type:"none"`，`symbol:"★"`，`achievementPopups: true`。
-- 成就 **14 个**（id 11..14/21..24/31..34/41..44），`done()` 读取全局状态；`goalTooltip`/`doneTooltip` 中文；其中至少 4 个是“彩蛋/条件刁钻”型（例如 热量恰好为某个值、泄压 100 次、进入全部挑战）。
+- 成就 **16 个**（id 11..14 / 21..24 / 31..34 / 41..44，四行各 4 个；原文写「14 个」是我的计数错误，
+  以实现与本行枚举为准 = 16），`done()` 读取全局状态；`goalTooltip`/`doneTooltip` 中文；
+  其中至少 4 个是“彩蛋/条件刁钻”型（例如 热量恰好为某个值、泄压 100 次、进入全部挑战）。
 - 统一奖励：每个成就给 `heat` ×1.02（用 `registerHook("heat", () => Decimal.pow(1.02, achievementCount()))`）；`hasMilestone('t',5)` 时该倍数 ×2。另外 4 个成就给专属 `effect()`（由别的层通过 `achievementEffect("ach", id)` 读取；请在 §5 对应层的说明中提供默认值以防 undefined —— 专属效果只加在 `heat`/`coreGain` 钩子里，由 ach.js 自己注册，避免其他层依赖）。
 - 部分成就示例（可按此扩展）：首次熔炉/首次锻造/首次反应/首次凝时/首次熔星、泄压 1/50/200 次、任意层货币达到 1e6/1e30、完成 1/3/6 个挑战、拥有 5 个星核、点燃恒星。
 
