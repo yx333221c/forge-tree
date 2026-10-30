@@ -214,8 +214,8 @@ function mStatusText() {
 		(cur.gte(req) ? "<b>可锻造</b>" : "还差 " + formatWhole(req.minus(cur))) + "<br>")
 	lines.push("锭条 <b>" + formatWhole(mPoints()) + "</b>　累计 " + formatWhole(mTotal()) + "　最高 " + formatWhole(mBest()) + "<br>")
 	lines.push("公式：锭条 = （炉芯 ÷ " + formatWhole(req) + "）^" + format(exp) + " × " + format(mult) + "<br>")
-	lines.push("指数加成（ingotExpBonus）：" + format(exp.minus(new Decimal(M_BAL.baseExp))) +
-		"　产出乘数（ingotGain）：" + timesFormat(mult) + "<br>")
+	lines.push("指数加成：" + format(exp.minus(new Decimal(M_BAL.baseExp))) +
+		"　产出乘数：" + timesFormat(mult) + "<br>")
 	lines.push("<b>先天：</b>热量 " + timesFormat(mEffHeat()) + "，炉芯产出 " + timesFormat(mEffCore()) + "<br>")
 	lines.push("<b>购入件：</b>轧辊 " + formatWhole(mAmt("11")) + "/" + formatWhole(mLimit("11")) +
 		"（" + timesFormat(mBuyEffect("11", mAmt("11"))) + " 锭条）　废料箱 " + formatWhole(mAmt("12")) + "/" + formatWhole(mLimit("12")) +
@@ -397,7 +397,9 @@ addLayer("m", {
 		let auto = autoOn(mFlag("autoForge") && mMs("m", 0)) ? new Decimal(M_BAL.autoForgeGen) : decimalZero
 		return auto.add(extra).toNumber()
 	},
-	autoUpgrade() { return autoOn(mFlag("autoBuy") && mMs("m", 1)) },
+	// §5.4 凝时里程碑 1「自动购买所有层升级」：本层原先只看自己的里程碑，读不到凝时的约定，
+	// 于是那条里程碑的效果是空的。这里补上（forgeHasMilestone 跨层安全，凝时未落地时返回 false）。
+	autoUpgrade() { return autoOn((mFlag("autoBuy") && mMs("m", 1)) || forgeHasMilestone("t", 1)) },
 	automate() {
 		if (!mUnlocked()) return
 		if (!autoOn(mFlag("autoFill") && mMs("m", 3))) return

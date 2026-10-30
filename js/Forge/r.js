@@ -295,7 +295,7 @@ function rStatusText() {
 		"</b>　最高 " + formatWhole(rBest()) + "　累计 " + formatWhole(rTotal()) + "　反应 " + formatWhole(rResets()) + " 次<br>")
 	lines.push("成本模型：下一手需 " + formatWhole(req) + " × " + timesFormat(cost) + " × " +
 		format(new Decimal(R_BAL.base)) + "^（持有 ÷ 产出倍数） 锭条　<b>成本倍数 &lt;1 才是变强</b><br>")
-	lines.push("产出倍数（catalystDirect）：" + timesFormat(direct) + "（越大越好）　成本指数：" + format(rCostExp()) + "<br>")
+	lines.push("产出倍数：" + timesFormat(direct) + "（越大越好）　成本指数：" + format(rCostExp()) + "<br>")
 	lines.push("下一手：需 " + formatWhole(rNextAtText()) + " 锭条 → <b>" + formatWhole(rGainText()) + "</b> 触媒" +
 		(rMs("r", 1) ? "（一次买满已解锁）" : "（一次买满未解锁）") + "<br>")
 	lines.push("<b>先天：</b>锭条产出 " + timesFormat(rEffIngot()) + "，热量 " + timesFormat(rEffHeat()) +
@@ -453,7 +453,8 @@ addLayer("r", {
 		forgeDoReset(this.layer, resettingLayer, keep)
 	},
 
-	autoUpgrade() { return autoOn(rFlag("autoBuy") && rMs("r", 0)) },
+	// §5.4 凝时里程碑 1「自动购买所有层升级」同样要覆盖本层（forgeHasMilestone 跨层安全）
+	autoUpgrade() { return autoOn((rFlag("autoBuy") && rMs("r", 0)) || forgeHasMilestone("t", 1)) },
 	// §5.4 里程碑 4「自动反应」要求它能覆盖本层的 autoPrestige。
 	// forgeAutoReaction 定义在 t.js（加载顺序在本文件之后），因此必须做存在性守卫。
 	autoPrestige() {
@@ -494,7 +495,7 @@ addLayer("r", {
 		},
 		13: {
 			title: "循环泵",
-			description: "触媒成本 ×0.85（成本 −15%）。<br><i>只影响本层的成本倍数（内部名 catalystCost）。</i>",
+			description: "触媒成本 ×0.85（成本 −15%）。<br><i>只影响本层的成本倍数。</i>",
 			cost() { return rUpgCost(13) },
 			unlocked() { return rUpgradeRowOpen(1) },
 			branches: [23],
@@ -503,7 +504,7 @@ addLayer("r", {
 		},
 		14: {
 			title: "惰性保护",
-			description: "触媒产出 ×1.5（+50%）。<br><i>影响本层的产出倍数（内部名 catalystDirect）。</i>",
+			description: "触媒产出 ×1.5（+50%）。<br><i>影响本层的产出倍数。</i>",
 			cost() { return rUpgCost(14) },
 			unlocked() { return rUpgradeRowOpen(1) },
 			branches: [24],

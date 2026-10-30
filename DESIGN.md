@@ -259,7 +259,10 @@ doReset(resettingLayer) {
 
 - `milestones`（用 `player.t.total`）：
   - 0：`1 时序` → 全局自动化开关键位（`player.t.autoAll`，影响 h/m 的自动开关默认值）
-  - 1：`5` → 自动购买**所有层**升级（实现：`autoUpgrade` 由每层读取 `hasMilestone('t',1)`；h/m/r 已按此实现）
+  - 1：`5` → 自动购买**所有层**升级（实现：`autoUpgrade` 由每层读取 `hasMilestone('t',1)`；
+    h/m/r/t/x 五层均已接上。**h 层特例**：它的升级购买写在 `automate()` 而非 `autoUpgrade`
+    字段，所以是在 `automate` 内并入 `forgeHasMilestone("t", 1)`。
+    本条在 v1.1 之前只对 t/x 成立，h/m/r 漏接 —— 清理文案时才发现，已修并补了行为测试）
   - 2：`20` → 自动加注所有 buyables（`player.t.autoFillAll`）
   - 3：`50` → 泄压/熔炼全自动（`player.t.autoHearth`）
   - 4：`100` → 自动反应（覆盖 r 的 autoPrestige）

@@ -588,7 +588,7 @@ addLayer("t", {
 			requirementDescription() { return "累计 " + formatWhole(new Decimal(T_BAL.msTotal[1])) + " 时序（当前 " + formatWhole(tTotal()) + "）" },
 			done() { return tTotal().gte(T_BAL.msTotal[1]) },
 			effectDescription: "自动购买<b>所有层</b>的升级（含本层），并解锁「时之砂」。",
-			tooltip: "h／m／r 层已按此约定读取 hasMilestone('t',1)。",
+			tooltip: "开启后，五层的升级都会自动购买，不必逐层去点。",
 		},
 		2: {
 			requirementDescription() { return "累计 " + formatWhole(new Decimal(T_BAL.msTotal[2])) + " 时序（当前 " + formatWhole(tTotal()) + "）" },

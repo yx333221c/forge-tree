@@ -330,7 +330,7 @@ addLayer("x", {
 		},
 		13: {
 			title: "自动熔星",
-			description: "熔星全自动：一达到收益门槛就自己压星核。<br><i>影响本层 autoPrestige；挑战「独断」期间失效。</i>",
+			description: "熔星全自动：一达到收益门槛就自己压星核。<br><i>挑战「独断」期间会停摆。</i>",
 			cost() { return xUpgCost(13) },
 		},
 		14: {

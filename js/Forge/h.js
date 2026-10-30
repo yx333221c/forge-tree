@@ -273,7 +273,9 @@ addLayer("h", {
 	},
 
 	automate() {
-		if (autoOn(player.h.autoBuy)) {
+		// §5.4 凝时里程碑 1「自动购买所有层升级」也要覆盖本层。
+		// h 层的升级购买在 automate 里（不用引擎的 autoUpgrade 字段），所以在这里并入。
+		if (autoOn(player.h.autoBuy || forgeHasMilestone("t", 1))) {
 			for (let id in layers.h.upgrades) {
 				if (!isNaN(id) && canAffordUpgrade("h", id) && !hasUpgrade("h", id)) buyUpg("h", id)
 			}
