@@ -6,42 +6,50 @@
 // 约定：
 //   * 跨层加成一律通过 registerHook 注册（钩子名见 §3.2），绝不直接改写别的层的数据。
 //   * 唯一例外（§4）：milestone 2「废钢回炉」在 onPrestige 里写 player.h.reserveCore，
-//     由 h 层读取。h 层 startData 已有该字段（默认 decimalZero），即使缺失，直接赋值也不报错。
+//     由 h 层读取。h 层 startData 已有该字段（默认 decimalZero）；缺层时也有保护。
 //   * 纯读函数（unlocked / canAfford / effect / cost / display / gainMult / gainExp）无副作用。
 //   * 加载期（addLayer 的对象字面量求值时）不调用 format / 不读 player / 不调 hasUpgrade：
-//     所有需要格式化的文案一律写成函数形式，在 tmp 更新时才执行。
-//   * 数值进入 player 一律 Decimal，开关一律 boolean。
+//     需要格式化的文案一律写成函数，在 tmp 更新时才执行。
+//   * 进入 player 的数值一律 Decimal，开关一律 boolean。
+//   * 本层购入件的货币是 player.m.points（锭条），因此可以直接复用 helpers 的
+//     forgeBuyMany / forgeSellOne / forgeRespecBuyables。
 // ============================================================================
 
 // ---------------- 可调数值（集中在这里，勿散落在公式里） ----------------
 var M_BAL = {
-	requires: 50,					// 炉芯 → 锭条 的门槛，同时是解锁本层的需求（加载期用 new Decimal 包装）
+	requires: 50,					// 炉芯 → 锭条 的门槛，同时是解锁本层的需求
 	baseExp: 0.5,					// 锭条公式基础指数（§3.5：exponent 字段设 1，指数全由 gainExp 给）
 	expFloor: 0.05,					// 指数下限（NaN / 变向防护）
-	heatExp: 0.4,					// 先天：锭条给热量的指数
-	coreExp: 0.25,					// 先天：锭条给炉芯产出的指数
+	// —— 先天效果（§8.5 规则 2：必须带 effCap/effSoft 软上限）——
+	heatExp: 0.4,					// 先天：锭条给热量的指数（§5.2 规格值；§8.5 的示例正是 锭条^0.4）
+	coreExp: 0.25,					// 先天：锭条给炉芯产出的指数（§5.2）
+	effCap: "1e12",					// 先天效果软上限（§8.5 建议 1e12；1e30 锭条时 ^0.4 恰好 1e12）
+	effSoft: 0.35,					// 超过软上限后的压缩指数（§8.5 建议 0.3–0.5）
 	softcap: "1e15",				// 锭条产出软上限
 	softcapPower: 0.5,
-	autoForgeGen: 0.5,				// milestone 0「自动锻造」：每次锻造产出的 50% 每秒自动发放
-	reserveCore: 0.5,				// milestone 2：锻造时保留的炉芯比例
+	autoForgeGen: 0.5,				// milestone 0「自动锻造」：每秒自动发放 50% 的单次锻造产出
+	reserveCore: 0.5,				// milestone 2：保留炉芯的**比例**（0~1，不是百分数；h 层用它 × 本轮持有量）
 	shiftBatch: 10,					// 按住 Shift 一次购买的数量
 	hydroPassive: 0.5,				// 31 水力锻机：熔炉 passiveGeneration 加成
 	guildDiv: 40,					// 32 行会盟约：泄压次数除数
 	guildExp: 0.5,					// 32 行会盟约：指数
+	guildCap: "1e6",				// 32 行会盟约的热量倍数预算（§8.5：单通道 ≤ 1e6）
 	ventMult: 3,					// 12 淬火槽：泄压收益倍数
 	pressureRateMult: 1.5,			// 13 配重锤：炉压增速倍数
 	expBonus: 0.05,					// 23 辊压机：锭条公式指数加成
-	coreMult: { 11: 3, 21: 5 },		// 11 锻锤 / 21 连续轧制：炉芯产出倍数
-	heatMult: { 14: 10, 24: 100 },	// 14 合金模 / 24 匠魂：热量倍数
+	coreMult: { 11: 3, 21: 5 },		// 11 锻锤 / 21 连续轧制：炉芯产出倍数（通道 3×5=15 ≤ 1e6 ✓）
+	heatMult: { 14: 10, 24: 100 },	// 14 合金模 / 24 匠魂：热量倍数（通道 10×100=1e3 ≤ 1e6 ✓）
 	upgCost: { 11: 1, 12: 2, 13: 4, 14: 8, 21: 20, 22: 40, 23: 60, 24: 120, 31: 300, 32: 300 },
 	milestones: [10, 100, 500, 2000],	// 累计锭条门槛
+	// —— 购入件预算自检（§8.5 规则 1：per^limit ≤ 1e6）——
+	//   轧辊   1.5^25 = 2.5e4   ≤ 1e6 ✓（§5.2 原 limit 40 → 1.5^40 = 8.3e6 超预算，已降上限）
+	//   废料箱 2^15   = 3.3e4   ≤ 1e6 ✓（§5.2 原 limit 30 → 2^30 = 1.1e9 超预算，已降上限）
+	// 要更强请降上限、提单价，不要提 per。
 	buyables: {
-		11: { base: 2, growth: 2.2, per: 1.5, limit: 40, name: "轧辊", unit: "根" },
-		12: { base: 3, growth: 2.5, per: 2, limit: 30, name: "废料箱", unit: "只" },
+		11: { base: 2, growth: 2.2, per: 1.5, limit: 25, name: "轧辊", unit: "根" },
+		12: { base: 3, growth: 2.5, per: 2, limit: 15, name: "废料箱", unit: "只" },
 	},
-	buyLoopCap: 100,					// 单次批量购买最多循环几次（上限远小于成本可达值，纯保险）
-	sellLoopCap: 200,					// 卖出全部最多循环几次
-	costCap: "1e30000",					// 成本上限（防止极端数值污染比较）
+	costCap: "1e30000",				// 成本上限（防止极端数值污染比较）
 }
 
 // ---------------- 只读小工具（纯函数，无副作用） ----------------
@@ -50,28 +58,20 @@ function mNum(x) { // Decimal | number -> Decimal，坏值归零
 	if (typeof x === "number") return isFinite(x) ? new Decimal(x) : decimalZero
 	return decimalZero
 }
-function mLayers(id) { return (typeof layers !== "undefined" && layers && layers[id]) ? layers[id] : null }
-function mPoints() { return (typeof player !== "undefined" && player && player.m) ? mNum(player.m.points) : decimalZero }
-function mTotal() { return (typeof player !== "undefined" && player && player.m) ? mNum(player.m.total) : decimalZero }
-function mBest() { return (typeof player !== "undefined" && player && player.m) ? mNum(player.m.best) : decimalZero }
-function mBase() { return (typeof player !== "undefined" && player && player.h) ? mNum(player.h.points) : decimalZero }
-function mVents() { return (typeof player !== "undefined" && player && player.h) ? mNum(player.h.vents) : decimalZero }
-function mAmt(id) {
-	if (typeof player === "undefined" || !player || !player.m || !player.m.buyables) return decimalZero
-	return mNum(player.m.buyables[id])
-}
+function mPoints() { return forgeAmt("m") }
+function mTotal() { return forgeTot("m") }
+function mBest() { return forgeHasLayer("m") ? mNum(player.m.best) : decimalZero }
+function mBase() { return forgeAmt("h") }
+function mVents() { return forgeHasLayer("h") ? mNum(player.h.vents) : decimalZero }
+function mAmt(id) { return getBuyableAmount("m", id) }
 function mLimit(id) {
-	let b = mLayers("m")
-	if (b && b.buyables && b.buyables[id] && b.buyables[id].purchaseLimit !== undefined) {
-		return mNum(b.buyables[id].purchaseLimit)
-	}
-	return new Decimal((M_BAL.buyables[id] || {}).limit || 0)
+	let b = (typeof layers !== "undefined" && layers.m) ? layers.m.buyables[id] : null
+	return b ? mNum(b.purchaseLimit) : new Decimal((M_BAL.buyables[id] || {}).limit || 0)
 }
-function mUpg(layer, id) { try { return !!hasUpgrade(layer, id) } catch (e) { return false } }
-function mMs(layer, id) { try { return !!hasMilestone(layer, id) } catch (e) { return false } }
-function mUnlocked() { return (typeof player !== "undefined" && player && player.m) ? !!player.m.unlocked : false }
-function mHUnlock() { return (typeof player !== "undefined" && player && player.h) ? !!player.h.unlocked : false }
-function mFlag(name) { return (typeof player !== "undefined" && player && player.m) ? !!player.m[name] : false }
+function mUpg(layer, id) { return forgeHasUpgrade(layer, id) }
+function mMs(layer, id) { return forgeHasMilestone(layer, id) }
+function mUnlocked() { return forgeHasUnlocked("m") }
+function mFlag(name) { return forgeHasLayer("m") ? !!player.m[name] : false }
 function mFlagText(name, on) { return "「" + on + "」：" + (mFlag(name) ? "<b>已开启</b>" : "未开启") }
 
 // 乘法夹取：拒绝 NaN / Infinity / 非正数
@@ -80,13 +80,23 @@ function mClampMult(v) {
 	if (d.lte(0) || !d.isFinite()) return decimalOne
 	return d
 }
-// 指数夹取：拒绝 NaN / Infinity，并给一个正下限（引擎里 gainExp 为 0 会直接产出 0）
+// 指数夹取：拒绝 NaN / Infinity，并给一个正下限（gainExp 为 0 会让引擎直接产出 0）
 function mClampExp(v) {
 	let d = mNum(v)
 	if (!d.isFinite() || d.lt(M_BAL.expFloor)) return new Decimal(M_BAL.expFloor)
 	return d
 }
-// 效果倍数上限夹取：数值过界时不至于把整条链变成 Infinity
+// 预算软上限（§8.5 规则 2）：超过 effCap 之后按 x^effSoft 压缩，
+// 让高层货币指数级膨胀时，本层给下游的加成仍然可控（且永不产生 Infinity）。
+function mBudget(v, cap) {
+	let d = mNum(v)
+	if (!d.isFinite() || d.lte(0)) return decimalOne
+	let c = new Decimal(cap === undefined ? M_BAL.effCap : cap)
+	if (d.gt(c)) d = c.times(d.div(c).pow(new Decimal(M_BAL.effSoft)))
+	if (!d.isFinite() || d.lte(0)) return decimalOne
+	return d
+}
+// 兼容旧名字：只挡 Infinity/NaN，预算交给 mBudget
 function mCapEff(d) {
 	if (!d.isFinite()) return new Decimal(M_BAL.costCap)
 	return d
@@ -103,9 +113,9 @@ function mIngotMult() {
 	try { m = foldMult("ingotGain", 1) } catch (err) { m = decimalOne }
 	return mClampMult(m)
 }
-// 先天效果（锭条 → 下游）
-function mEffHeat() { return mCapEff(decimalOne.add(mPoints()).pow(new Decimal(M_BAL.heatExp))) }
-function mEffCore() { return mCapEff(decimalOne.add(mPoints()).pow(new Decimal(M_BAL.coreExp))) }
+// 先天效果（锭条 → 下游），带 §8.5 预算软上限
+function mEffHeat() { return mBudget(decimalOne.add(mPoints()).pow(new Decimal(M_BAL.heatExp))) }
+function mEffCore() { return mBudget(decimalOne.add(mPoints()).pow(new Decimal(M_BAL.coreExp))) }
 // 升级贡献
 function mUpgCoreMult() {
 	let v = decimalOne
@@ -121,14 +131,15 @@ function mUpgHeatMult() {
 }
 function mUpgGuildMult() {
 	if (!mUpg("m", 32)) return decimalOne
-	return mCapEff(decimalOne.add(mVents().div(new Decimal(M_BAL.guildDiv)).max(0)).pow(new Decimal(M_BAL.guildExp)))
+	// 泄压次数无上限 → 这条通道也必须显式进预算（§8.5：单通道 ≤ 1e6）
+	return mBudget(decimalOne.add(mVents().div(new Decimal(M_BAL.guildDiv)).max(0)).pow(new Decimal(M_BAL.guildExp)), M_BAL.guildCap)
 }
 function mUpgVentMult() { return mUpg("m", 12) ? new Decimal(M_BAL.ventMult) : decimalOne }
 function mUpgPressureMult() { return mUpg("m", 13) ? new Decimal(M_BAL.pressureRateMult) : decimalOne }
 function mUpgExpBonus() { return mUpg("m", 23) ? new Decimal(M_BAL.expBonus) : decimalZero }
 function mUpgHPassive() { return mUpg("m", 31) ? new Decimal(M_BAL.hydroPassive) : decimalZero }
 
-// ---------------- 购入件：成本 / 效果 / 买卖 ----------------
+// ---------------- 购入件：成本 / 效果 ----------------
 function mBuySpec(id) { return M_BAL.buyables[id] || M_BAL.buyables[11] }
 function mCostFinal(x) {
 	let raw = mNum(x)
@@ -154,77 +165,32 @@ function mBuyEffect(id, x) { // 已含挑战「贫瘠」的减半（buyableDebuf
 	if (d.lte(0) || !d.isFinite()) return decimalOne
 	return d
 }
-// 买 n 个（自动尊重 purchaseLimit 与余额），返回实际买到几个
-function mBuyAmount(id, count) {
-	if (typeof player === "undefined" || !player || !player.m || !player.m.buyables) return decimalZero
-	let limit = mLimit(id)
-	let amount = mAmt(id)
-	if (amount.gte(limit)) return decimalZero
-	let pts = mNum(player.m.points)
-	let spent = mNum(player.m.spentOnBuyables)
-	let want = Math.floor(mNum(count).toNumber())
-	if (!isFinite(want) || want < 1) want = 1
-	if (want > M_BAL.buyLoopCap) want = M_BAL.buyLoopCap
-	let bought = decimalZero
-	for (let i = 0; i < want; i++) {
-		if (amount.add(bought).gte(limit)) break
-		let c = mBuyCost(id, amount.add(bought))
-		if (pts.lt(c)) break
-		pts = pts.sub(c)
-		spent = spent.add(c)
-		bought = bought.add(1)
-	}
-	if (bought.gt(0)) {
-		addBuyables("m", id, bought)
-		player.m.points = pts
-		player.m.spentOnBuyables = spent
-	}
-	return bought
-}
-function mBuyMax(id) {
-	let limit = mLimit(id)
-	mBuyAmount(id, limit.add(1))
-}
-function mSellOne(id) {
-	if (typeof player === "undefined" || !player || !player.m || !player.m.buyables) return
-	let amt = mAmt(id)
-	if (amt.lte(0)) return
-	let refund = mBuyCost(id, amt.sub(1))
-	setBuyableAmount("m", id, amt.sub(1))
-	player.m.points = mNum(player.m.points).add(refund)
-	player.m.spentOnBuyables = mNum(player.m.spentOnBuyables).sub(refund).max(decimalZero)
-}
-function mSellAll(id) {
-	let n = Math.min(Math.floor(mAmt(id).toNumber()), M_BAL.sellLoopCap)
-	for (let i = 0; i < n; i++) mSellOne(id)
-}
-function mResetBuyables() {
-	let ids = Object.keys(M_BAL.buyables)
-	for (let i = 0; i < ids.length; i++) setBuyableAmount("m", ids[i], decimalZero)
-}
-// 供 tab 上「全部加注」按钮调用（全局函数，只在点击时执行）
-function mFillAll() {
-	let ids = Object.keys(M_BAL.buyables)
-	for (let i = 0; i < ids.length; i++) { try { mBuyMax(ids[i]) } catch (e) { console.error(e) } }
-}
+// 成本函数工厂：交给 helpers 的通用买/卖
+function mCostFn(id) { return function (x) { return mBuyCost(id, x) } }
 
 // ---------------- 显示辅助（全部是运行期函数） ----------------
 function mGoalText(idx) {
-	let req = new Decimal(M_BAL.milestones[idx])
-	return fmtTarget(mTotal(), req, "锭条")
+	return fmtTarget(mTotal(), new Decimal(M_BAL.milestones[idx]), "累计锭条")
+}
+function mNextMilestoneIdx() {
+	for (let i = 0; i < M_BAL.milestones.length; i++) {
+		if (!mMs("m", i)) return i
+	}
+	return -1
 }
 function mNextMilestoneGoal() {
-	for (let i = 0; i < M_BAL.milestones.length; i++) {
-		if (!mMs("m", i)) return new Decimal(M_BAL.milestones[i])
-	}
-	return null
+	let i = mNextMilestoneIdx()
+	return i < 0 ? null : new Decimal(M_BAL.milestones[i])
 }
-function mUpgradeRowOpen(row) {
-	if (row === 1) return true
-	if (row === 2) return mUpg("m", 11) && mUpg("m", 12) && mUpg("m", 13) && mUpg("m", 14)
-	if (row === 3) return mUpg("m", 21) && mUpg("m", 22) && mUpg("m", 23) && mUpg("m", 24)
-	return false
-}
+// 升级可见性：§5.2 没有规定行锁，h.js 也只对互斥对做 unlocked()，所以这里一律可见，
+// 由成本本身（1→300）决定购买顺序。要加门槛就改这里。
+// （上一版要求「上一行全清」，会让 匠魂(120) 挡在 辊压机(60) 前面，实测把中层空窗拉长数分钟。）
+function mUpgradeRowOpen(row) { return true }
+// 互斥语义（DESIGN §5.2）：只用 unlocked() 表达「二选一」，不做任何退款式兜底。
+// 引擎层（js/utils.js buyUpg）已补实时 unlocked() 校验，因此同一 tick 内后买者会被**拒绝**，
+// 语义固定为「先到者胜、后买被拒、不扣钱」。
+// 曾经在本层加过 onPurchase「顶替+退款」守卫，已删除：它按 mUpgCost(otherId) 当下重算退款额，
+// 而成本会随钩子变化，一旦有路径绕过 buyUpg 就会退错钱，变成刷钱口。
 function mUpgCost(id) {
 	let base = new Decimal(M_BAL.upgCost[id] || 1)
 	let v = base
@@ -241,26 +207,30 @@ function mStatusText() {
 	let exp = mIngotExp()
 	let mult = mIngotMult()
 	let req = new Decimal(M_BAL.requires)
+	let cur = mBase()
 	let lines = []
 	lines.push("<h3>锻台读数</h3>")
-	lines.push("炉芯 <b>" + formatWhole(mBase()) + "</b> ／ 门槛 " + formatWhole(req) +
-		(player.m ? "（" + (mBase().gte(req) ? "<b>可锻造</b>" : "还差 " + formatWhole(req.minus(mBase()))) + "）" : "") + "<br>")
+	lines.push("炉芯 <b>" + formatWhole(cur) + "</b> ／ 门槛 " + formatWhole(req) + "　" +
+		(cur.gte(req) ? "<b>可锻造</b>" : "还差 " + formatWhole(req.minus(cur))) + "<br>")
 	lines.push("锭条 <b>" + formatWhole(mPoints()) + "</b>　累计 " + formatWhole(mTotal()) + "　最高 " + formatWhole(mBest()) + "<br>")
 	lines.push("公式：锭条 = （炉芯 ÷ " + formatWhole(req) + "）^" + format(exp) + " × " + format(mult) + "<br>")
-	lines.push("指数加成 ingotExpBonus：" + format(exp.minus(new Decimal(M_BAL.baseExp))) + "　产出乘数 ingotGain：" + timesFormat(mult) + "<br>")
+	lines.push("指数加成（ingotExpBonus）：" + format(exp.minus(new Decimal(M_BAL.baseExp))) +
+		"　产出乘数（ingotGain）：" + timesFormat(mult) + "<br>")
 	lines.push("<b>先天：</b>热量 " + timesFormat(mEffHeat()) + "，炉芯产出 " + timesFormat(mEffCore()) + "<br>")
 	lines.push("<b>购入件：</b>轧辊 " + formatWhole(mAmt("11")) + "/" + formatWhole(mLimit("11")) +
 		"（" + timesFormat(mBuyEffect("11", mAmt("11"))) + " 锭条）　废料箱 " + formatWhole(mAmt("12")) + "/" + formatWhole(mLimit("12")) +
 		"（" + timesFormat(mBuyEffect("12", mAmt("12"))) + " 热量）<br>")
-	let goal = mNextMilestoneGoal()
-	lines.push(goal ? ("下一个里程碑：" + fmtTarget(mTotal(), goal, "累计锭条")) : "里程碑全部达成")
+	let idx = mNextMilestoneIdx()
+	lines.push(idx < 0 ? "里程碑全部达成" : ("下一个里程碑：" + mGoalText(idx)))
 	lines.push("<br><b>互斥路线：</b>" + mRouteText())
 	lines.push("<br>" + mFlagText("autoForge", "自动锻造") + "　" + mFlagText("autoBuy", "自动购买升级") + "　" + mFlagText("autoFill", "自动加注") + "<br>")
-	lines.push("自动锻造速率：" + format(tmp && tmp.m && tmp.m.passiveGeneration !== undefined ? mNum(tmp.m.passiveGeneration) : decimalZero) + " 锭条/秒")
+	let gen = (typeof tmp !== "undefined" && tmp.m) ? mNum(tmp.m.passiveGeneration) : decimalZero
+	lines.push("自动锻造速率：" + format(gen) + " 锭条/秒　保留炉芯比例：" + format(forgeHasLayer("h") ? mNum(player.h.reserveCore) : decimalZero) + "<br>")
+	lines.push("已投入购入件：" + format(forgeHasLayer("m") ? mNum(player.m.spentOnBuyables) : decimalZero) + " 锭条（回炉重熔全额返还）")
 	return lines.join("")
 }
 
-// ---------------- 钩子注册（加载期调用 registerHook，函数体在运行期执行） ----------------
+// ---------------- 钩子注册（registerHook 在加载期执行，函数体在运行期执行） ----------------
 function mRegister(name, fn) {
 	try {
 		registerHook(name, fn)
@@ -275,20 +245,20 @@ function mHookCoreInnate() { return mEffCore() }
 function mHookCoreUpg() { return mUpgCoreMult() }
 function mHookIngotBuy() { return mBuyEffect("11", mAmt("11")) }
 function mHookIngotExpBonus() { return mUpgExpBonus() }
-function mHookVentValue() { return mUpgVentValue() }
+function mHookVentValue() { return mUpgVentMult() }
 function mHookPressureRate() { return mUpgPressureMult() }
 function mHookHPassiveAdd() { return mUpgHPassive() }
 
-mRegister("heat", mHookHeatInnate)
-mRegister("heat", mHookHeatUpg)
-mRegister("heat", mHookHeatBuy)
-mRegister("coreGain", mHookCoreInnate)
-mRegister("coreGain", mHookCoreUpg)
-mRegister("ingotGain", mHookIngotBuy)
-mRegister("ingotExpBonus", mHookIngotExpBonus)
-mRegister("ventValue", mHookVentValue)
-mRegister("pressureRate", mHookPressureRate)
-mRegister("hPassiveAdd", mHookHPassiveAdd)
+mRegister("heat", mHookHeatInnate)					// 锭条先天 → 热量
+mRegister("heat", mHookHeatUpg)						// 合金模 / 匠魂 / 行会盟约
+mRegister("heat", mHookHeatBuy)						// 废料箱
+mRegister("coreGain", mHookCoreInnate)				// 锭条先天 → 炉芯产出
+mRegister("coreGain", mHookCoreUpg)					// 锻锤 / 连续轧制
+mRegister("ingotGain", mHookIngotBuy)				// 轧辊 → 本层 gainMult
+mRegister("ingotExpBonus", mHookIngotExpBonus)		// 辊压机 → gainExp
+mRegister("ventValue", mHookVentValue)				// 淬火槽
+mRegister("pressureRate", mHookPressureRate)		// 配重锤（乘法倍数）
+mRegister("hPassiveAdd", mHookHPassiveAdd)			// 水力锻机
 
 // ---------------- 保留规则（§4 表格：由更高层的重置触发） ----------------
 // 锻造升级的保留：r 升级 21（反应再生）或 t 升级 12（时序模具）
@@ -306,6 +276,15 @@ function mKeepBuyables(resettingLayer) {
 	return false
 }
 
+// 供 tab 上「全部加注」按钮调用（全局函数，只在点击时执行）
+function mFillAll() {
+	if (!mUnlocked()) return
+	let ids = Object.keys(M_BAL.buyables)
+	for (let i = 0; i < ids.length; i++) {
+		try { forgeBuyMax("m", ids[i], mCostFn(ids[i])) } catch (e) { console.error(e) }
+	}
+}
+
 // ============================================================================
 addLayer("m", {
 	name: "锻造",
@@ -320,7 +299,10 @@ addLayer("m", {
 
 	type: "normal",
 	exponent: 1,							// §3.5：指数完全由 gainExp 提供，此字段必须是 1
-	requires: new Decimal(M_BAL.requires),
+	// requires 用**函数**形式（引擎支持，见 docs/layer-features.md 与 js/Demo/layers/f.js）：
+	// 写成 new Decimal(...) 字面量会被加载期捕获，之后改 M_BAL.requires 不再生效，
+	// 导致 tools/sim.js / --set 无法扫参门槛。函数形式让 tmp.m.requires 每帧现读。
+	requires() { return new Decimal(M_BAL.requires) },
 	softcap: new Decimal(M_BAL.softcap),
 	softcapPower: new Decimal(M_BAL.softcapPower),
 
@@ -343,7 +325,7 @@ addLayer("m", {
 		}
 	},
 
-	layerShown() { return mUnlocked() || mHUnlock() },
+	layerShown() { return mUnlocked() || forgeHasUnlocked("h") },
 
 	tooltip() {
 		return "锭条：<b>" + formatWhole(mPoints()) + "</b>（累计 " + formatWhole(mTotal()) + "）<br>" +
@@ -355,7 +337,8 @@ addLayer("m", {
 		let req = new Decimal(M_BAL.requires)
 		let cur = mBase()
 		return "需要 <b>" + formatWhole(req) + "</b> 炉芯（当前 " + formatWhole(cur) + "）<br>" +
-			(cur.gte(req) ? "已达标：点击节点开锻台。" : "还差 " + formatWhole(req.minus(cur)) + " 炉芯。<br>炉芯来自熔炉（Hearth）的熔炼：攒够热量，再落锤。")
+			(cur.gte(req) ? "已达标：点击节点开锻台。" :
+				"还差 " + formatWhole(req.minus(cur)) + " 炉芯。<br>炉芯来自熔炉（Hearth）的熔炼：攒够热量，再落锤。")
 	},
 
 	resetDescription: "把炉芯送上锻台，获得 ",
@@ -388,10 +371,10 @@ addLayer("m", {
 	onPrestige() {
 		// §4 的唯一例外：把「保留多少炉芯」交给 h 层读取
 		let keep = mMs("m", 2) ? new Decimal(M_BAL.reserveCore) : decimalZero
-		if (typeof player !== "undefined" && player && player.h) {
+		if (forgeHasLayer("h")) {
 			player.h.reserveCore = keep
 		}
-		if (typeof player !== "undefined" && player && player.m) {
+		if (forgeHasLayer("m")) {
 			player.m.resets = mNum(player.m.resets).add(1)
 		}
 	},
@@ -403,7 +386,7 @@ addLayer("m", {
 		forgeDoReset(this.layer, resettingLayer, keep)
 	},
 
-	// 自动锻造（milestone 0）+ 别的高层通过 millPassiveAdd 给的加成
+	// 自动锻造（milestone 0）+ 其它层通过 millPassiveAdd 给的加成
 	passiveGeneration() {
 		let extra = decimalZero
 		try { extra = mNum(foldAdd("millPassiveAdd", 0)) } catch (e) { extra = decimalZero }
@@ -416,7 +399,9 @@ addLayer("m", {
 		if (!mUnlocked()) return
 		if (!autoOn(mFlag("autoFill") && mMs("m", 3))) return
 		let ids = Object.keys(M_BAL.buyables)
-		for (let i = 0; i < ids.length; i++) { try { mBuyMax(ids[i]) } catch (e) { console.error(e) } }
+		for (let i = 0; i < ids.length; i++) {
+			try { forgeBuyMax("m", ids[i], mCostFn(ids[i])) } catch (e) { console.error(e) }
+		}
 	},
 
 	// ---------------------------------------------------------------- 升级
@@ -474,8 +459,8 @@ addLayer("m", {
 		23: {
 			title: "辊压机",
 			description() {
-				return "锭条公式指数 +" + M_BAL.expBonus + "。<br>当前指数：" + format(mIngotExp()) +
-					"（基础 " + M_BAL.baseExp + " ＋ 加成 " + format(expBonusOf()) + "）"
+				return "锭条公式指数 +0.05。<br>当前指数：" + format(mIngotExp()) +
+					"（基础 " + M_BAL.baseExp + " ＋ 全部加成 " + format(mIngotExp().minus(new Decimal(M_BAL.baseExp))) + "）"
 			},
 			cost() { return mUpgCost(23) },
 			unlocked() { return mUpgradeRowOpen(2) },
@@ -492,7 +477,7 @@ addLayer("m", {
 		},
 		31: {
 			title: "水力锻机",
-			description: "熔炉自动产出 +0.5（每把炉子自己打芯）。<br><i>影响熔炉（Hearth）层的 passiveGeneration。</i><br><b>与「行会盟约」互斥，二选一。</b>",
+			description: "熔炉自动产出 +0.5（每把炉子自己打芯）。<br><i>影响熔炉（Hearth）层的自动产出（passiveGeneration）。</i><br><b>与「行会盟约」互斥，二选一。</b>",
 			cost() { return mUpgCost(31) },
 			unlocked() { return mUpgradeRowOpen(3) && !mUpg("m", 32) },
 			effect() { return mUpgHPassive() },
@@ -515,30 +500,34 @@ addLayer("m", {
 	// ---------------------------------------------------------------- 里程碑
 	milestones: {
 		0: {
-			requirementDescription() { return "累计 " + formatWhole(new Decimal(M_BAL.milestones[0])) + " 锭条<br>" + mGoalText(0) },
+			requirementDescription() { return "累计 10 锭条<br>" + mGoalText(0) },
 			done() { return mTotal().gte(new Decimal(M_BAL.milestones[0])) },
-			effectDescription() { return "解锁<b>自动锻造</b>（每秒自动获得 " + new Decimal(M_BAL.autoForgeGen) + " 倍单次锻造产出）<br>" + mFlagText("autoForge", "自动锻造") },
+			effectDescription() {
+				return "解锁<b>自动锻造</b>（每秒自动获得 " + M_BAL.autoForgeGen + " 倍单次锻造产出）<br>" +
+					mFlagText("autoForge", "自动锻造")
+			},
 			toggles: [["m", "autoForge"]],
 		},
 		1: {
-			requirementDescription() { return "累计 " + formatWhole(new Decimal(M_BAL.milestones[1])) + " 锭条<br>" + mGoalText(1) },
+			requirementDescription() { return "累计 100 锭条<br>" + mGoalText(1) },
 			done() { return mTotal().gte(new Decimal(M_BAL.milestones[1])) },
 			effectDescription() { return "解锁<b>自动购买锻造升级</b><br>" + mFlagText("autoBuy", "自动购买升级") },
 			unlocked() { return mMs("m", 0) },
 			toggles: [["m", "autoBuy"]],
 		},
 		2: {
-			requirementDescription() { return "累计 " + formatWhole(new Decimal(M_BAL.milestones[2])) + " 锭条<br>" + mGoalText(2) },
+			requirementDescription() { return "累计 500 锭条<br>" + mGoalText(2) },
 			done() { return mTotal().gte(new Decimal(M_BAL.milestones[2])) },
 			effectDescription() {
-				return "<b>废钢回炉</b>：锻造时保留 " + formatWhole(new Decimal(M_BAL.reserveCore).times(100)) + "% 的最好一轮炉芯<br>" +
-					"（熔炉读取的比例：当前 " + format(player && player.h ? mNum(player.h.reserveCore) : decimalZero) + "）"
+				return "<b>废钢回炉</b>：锻造时保留 50% 的<b>本轮炉芯</b>（按重置前的持有量，不是历史最佳）<br>" +
+					"（熔炉读取的保留比例，当前 " +
+					format(forgeHasLayer("h") ? mNum(player.h.reserveCore) : decimalZero) + "）"
 			},
 			unlocked() { return mMs("m", 1) },
-			tooltip: "本层 onPrestige 写入 player.h.reserveCore，由熔炉的重置规则使用。",
+			tooltip: "本层在熔炼瞬间写入熔炉的保留比例（内部字段 player.h.reserveCore），由熔炉的重置规则使用。",
 		},
 		3: {
-			requirementDescription() { return "累计 " + formatWhole(new Decimal(M_BAL.milestones[3])) + " 锭条<br>" + mGoalText(3) },
+			requirementDescription() { return "累计 2000 锭条<br>" + mGoalText(3) },
 			done() { return mTotal().gte(new Decimal(M_BAL.milestones[3])) },
 			effectDescription() { return "解锁<b>自动加注轧辊 / 废料箱</b>（Ctrl+M 回炉重熔）<br>" + mFlagText("autoFill", "自动加注") },
 			unlocked() { return mMs("m", 2) },
@@ -552,9 +541,7 @@ addLayer("m", {
 		respecText: "回炉重熔",
 		respecMessage: "确定要把所有锻造购入件全部熔回锭条吗？投入的锭条一分不少地回到你手上。",
 		respec() {
-			player.m.points = mNum(player.m.points).add(mNum(player.m.spentOnBuyables))
-			player.m.spentOnBuyables = decimalZero
-			mResetBuyables()
+			forgeRespecBuyables("m")	// 引擎没有 resetBuyables()，这里用 helpers 的实现
 		},
 		11: {
 			title() { return "轧辊　" + formatWhole(mAmt("11")) + " / " + formatWhole(mLimit("11")) },
@@ -562,10 +549,10 @@ addLayer("m", {
 			effect(x) { return mBuyEffect("11", mNum(x)) },
 			unlocked() { return mUnlocked() },
 			canAfford() { return mPoints().gte(mBuyCost("11", mAmt("11"))) },
-			buy() { mBuyAmount("11", shiftDown ? new Decimal(M_BAL.shiftBatch) : decimalOne) },
-			buyMax() { mBuyMax("11") },
-			sellOne() { mSellOne("11") },
-			sellAll() { mSellAll("11") },
+			buy() { forgeBuyMany("m", "11", mCostFn("11"), shiftDown ? M_BAL.shiftBatch : 1) },
+			buyMax() { forgeBuyMax("m", "11", mCostFn("11")) },
+			sellOne() { forgeSellOne("m", "11", mCostFn("11")) },
+			sellAll() { forgeSellAll("m", "11", mCostFn("11")) },
 			canSellOne() { return mAmt("11").gt(0) },
 			canSellAll() { return mAmt("11").gt(0) },
 			purchaseLimit: new Decimal(M_BAL.buyables[11].limit),
@@ -585,10 +572,10 @@ addLayer("m", {
 			effect(x) { return mBuyEffect("12", mNum(x)) },
 			unlocked() { return mUnlocked() },
 			canAfford() { return mPoints().gte(mBuyCost("12", mAmt("12"))) },
-			buy() { mBuyAmount("12", shiftDown ? new Decimal(M_BAL.shiftBatch) : decimalOne) },
-			buyMax() { mBuyMax("12") },
-			sellOne() { mSellOne("12") },
-			sellAll() { mSellAll("12") },
+			buy() { forgeBuyMany("m", "12", mCostFn("12"), shiftDown ? M_BAL.shiftBatch : 1) },
+			buyMax() { forgeBuyMax("m", "12", mCostFn("12")) },
+			sellOne() { forgeSellOne("m", "12", mCostFn("12")) },
+			sellAll() { forgeSellAll("m", "12", mCostFn("12")) },
 			canSellOne() { return mAmt("12").gt(0) },
 			canSellAll() { return mAmt("12").gt(0) },
 			purchaseLimit: new Decimal(M_BAL.buyables[12].limit),
@@ -698,7 +685,7 @@ addLayer("m", {
 					return "本层没有挑战。挑战在凝时（Tempo）层的沙漏里。<br>" +
 						"回炉重熔会全额返还投入的锭条；更高层重置时，只有契约允许的升级与购入件能活下来" +
 						"（反应「再生」或凝时「模具」）。<br>" +
-						"当前保留炉芯比例：" + format(player && player.h ? mNum(player.h.reserveCore) : decimalZero)
+						"挑战「独断」进行中时，本层的全部自动化都会停摆（判定统一走 autoOn）。"
 				}],
 				["blank", "10px"],
 				["bar", "forgeGauge"],
@@ -711,10 +698,3 @@ addLayer("m", {
 		"buyable"() { return { "height": "180px", "width": "200px" } },
 	},
 })
-
-// 升级 23 描述里用的「全部指数加成」（含本层与其它层注册的钩子）
-function expBonusOf() {
-	let e = decimalZero
-	try { e = mIngotExp().minus(new Decimal(M_BAL.baseExp)) } catch (err) { e = decimalZero }
-	return e
-}

@@ -1,7 +1,9 @@
 * {
 	transition-duration: 0.5s;
 	text-align: center;
-	font-family: "Inconsolata", monospace;
+	/* Inconsolata 无中文字形：显式给出 CJK 回退，否则中文会掉到浏览器默认字体，
+	   造成字重/字距不一致（本项目全文为简体中文）。 */
+	font-family: "Inconsolata", "Microsoft YaHei", "微软雅黑", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", monospace;
 	font-weight: bold;
 	table-align: center;
 	margin: auto;

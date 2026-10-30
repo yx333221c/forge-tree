@@ -1,44 +1,68 @@
 // ============================================================
 // row 0 · 熔炉 Hearth —— 一切开始的地方
 // 核心机制：炉压（Pressure）与泄压（Vent）
-//   炉压每秒稳定上升，给热量产出提供一个幂函数倍率；
-//   「泄压」把积累的炉压瞬间兑换成一笔热量，但会清零倍率。
-//   → 玩家永远在「等倍率成长」与「立刻兑现」之间取舍。
+//   炉压线性上涨到上限后停住（挂机不受惩罚，只是不再变快）。
+//   常驻热量倍率是「有界」的（满压只有 ×1.35），所以光憋着并不值钱；
+//   泄压额度带 (P/CAP)^4 的超线性奖励 —— 半压只有 1/16，满压才吃满。
+//   于是唯一正确的玩法是「等到满压再放」，而且第一次满压泄放刚好换到
+//   第一个炉芯：泄压本身就是新手教学。
+//   实测（见 DESIGN.md §8 调参记录）：满压才放 vs 从不泄压 = 3.74×，
+//   vs 冷却一到就乱放 = 4.37×，vs 半压就放 = 2.69×。
 // 跨层加成一律通过 js/Forge/helpers.js 的钩子（DESIGN.md §3）。
 // 纯读函数无副作用；只有 update/automate/doReset/onPrestige/buy/sell/respec 会写状态。
 // ============================================================
 
 var H_BAL = {
 	// —— 熔炼公式 ——
-	requires: 10,             // 多少热量换 1 炉芯
+	requires: 200,            // 多少热量换 1 炉芯（第一次满压泄放 ≈ 1 炉芯；50 炉芯约 2.2min）
 	baseExp: 0.5,             // 炉芯公式基础指数（exponent 字段固定 1，指数交给 gainExp）
 	softcap: "1e50",          // 炉芯产出软上限
 	softcapPower: 0.45,
-	// —— 炉压 ——
-	pressureRate: 3,          // 每秒炉压增量（基础）
-	pressureExp: 0.35,        // 炉压倍率指数：heat ×(1+P)^exp
-	pressureSoftMax: 500,     // 超过这个值，增速衰减（避免无限膨胀）
+	// —— 炉压：线性涨到上限后停住（不惩罚挂机）——
+	pressureRate: 6,          // 每秒炉压增量（约 17 秒充满）
+	pressureCap: 100,         // 炉压上限
+	pressureMaxBoost: 0.35,   // 满压时的常驻热量倍率（×1.35，有界 → 憋着不放不值钱）
+	pressureExp: 1,           // 常驻倍率对压力的响应指数
 	// —— 泄压 ——
-	ventSeconds: 15,          // 泄压 = 当前每秒热量 × 这么多秒
-	ventCooldown: 2,          // 泄压冷却（秒）
-	ventAutoPressure: 60,     // 自动泄压的炉压阈值
+	ventSeconds: 300,         // 泄压额度 = 每秒热量 × 这么多秒 ×(P/CAP)^ventPow × 阀门加成
+	ventPow: 4,               // 超线性：半压只有 1/16，满压才吃满 → 教会玩家「等满压」
+	ventKeep: 0,              // 泄压后保留的炉压比例
+	ventKeep32: 0.35,         // 升级 32「压力回廊」：泄压后保留更多压力（换取泄压额度下降）
+	ventCooldown: 3,          // 泄压冷却（秒）
 	ventAutoWait: 20,         // 自动泄压：只在「这笔钱能推进熔炼」时动手
 	emberPerReset: 0.02,      // 余烬耙：每次熔炼的泄压加成
 	emberCap: 10,
 	// —— 燃料棒 ——
-	rodBase: 5, rodCost1: 10, rodScale1: 4, limit1: 25,
-	rodBase2: 3, rodCost2: 2, rodScale2: 3.2, limit2: 20,
+	//  每根 ×1.5、上限 25 根 → 满级约 ×2.5e4。
+	//  （曾用 ×5/25 根 = ×3e17，实测会把热量彻底压过其它层，让中层形同虚设。）
+	rodBase: 1.5, rodCost1: 10, rodScale1: 4, limit1: 25,
+	rodBase2: 1.4, rodCost2: 2, rodScale2: 3.2, limit2: 20,
 	shiftBatch: 10,
-	// —— 升级成本（炉芯）——
-	upg: { 11: 1, 12: 3, 13: 8, 14: 20, 21: 45, 22: 90, 23: 180, 24: 400, 31: 1000, 32: 2500 },
+	// —— 升级成本（炉芯）—— 抬高成本，避免熔炉一路碾压后面的层
+	upg: { 11: 1, 12: 10, 13: 60, 14: 200, 21: 800, 22: 2500, 23: 8000, 24: 30000, 31: 120000, 32: 120000 },
 	// —— 效果数值 ——
 	heat11: 10, core14: 2, exp13: 0.05, exp22: 0.03, vent22: 2.5,
-	core24: 3, heat24: 1000, chainPerAch: 2, chainAchCap: 25,
+	core24: 3, heat24: 1000, chainPerAch: 1.5, chainAchCap: 14,
 	pressureRate12: 1.5, pressureRate32: 1.25, vent32: 0.5, exp31: 0.05, core31: 0.5,
 	// —— 里程碑阈值 ——
-	msCore1: 1e3, msCore2: 1e6,
+	msCore1: 1e3, msCore2: 1e4,
 	// —— 先天效果指数 ——
-	effHeatExp: 0.4, effCoreExp: 0.2, effPressureExp: 0.1,
+	effHeatExp: 0.25, effCoreExp: 0.2, effPressureExp: 0.1,
+	// —— 先天效果软上限（DESIGN.md §8.5 规则2）——
+	// heat 是唯一与自身构成回路的通道（热量→炉芯→热量）：泄压一次给 300 秒产量，
+	// 锻造重置又保留 50% 炉芯，于是「炉芯」在每轮循环里被抬高，而本项按炉芯的 0.25 次方
+	// 反过来抬高热量 —— 这是一个**多项式棘轮**，不是收敛回路。实测 20 分钟纯自动化跑
+	// 会把炉芯顶到 1e38、heat 通道到 1e41（sim.js §8.5 守卫已抓到）。
+	// cap=1e4 对应炉芯 1e16：正常推进（点燃时炉芯约 1e12 → 本项仅 1e3）完全不受影响，
+	// 只把棘轮的末端掐断。soft=0.35 保证压缩后仍单调、无断点。
+	effHeatCap: 1e4, effHeatSoft: 0.35,
+	effCoreCap: 1e4, effCoreSoft: 0.35,
+}
+
+// 软上限工具：超过 cap 后按 soft 幂次压缩（连续、无断点）
+function hSoftCap(v, cap, soft) {
+	if (!v.isFinite() || v.lte(cap)) return v
+	return D(cap).times(v.div(cap).pow(soft))
 }
 
 // ---------- 内部计算（纯读） ----------
@@ -83,16 +107,28 @@ function hEmberBonus() {
 }
 
 function hCoreMult() {
-	return D(player.h.points).add(1).pow(D(H_BAL.effCoreExp).add(foldAdd("coreEffectExp", 0)))
+	return hSoftCap(
+		D(player.h.points).add(1).pow(D(H_BAL.effCoreExp).add(foldAdd("coreEffectExp", 0))),
+		H_BAL.effCoreCap, H_BAL.effCoreSoft)
 }
 
 function hHeatMultFromCore() {
-	return D(player.h.points).add(1).pow(D(H_BAL.effHeatExp).add(foldAdd("heatCoreExp", 0)))
+	// 这是全局唯一「自身回路」的通道：热量 →(泄压/熔炼)→ 炉芯 →(本项)→ 热量。
+	// 指数 0.25 < 1 时回路收敛，但只要有别的层往 heatCoreExp 里加指数，
+	// 边际就可能 >1 变成指数爆炸，所以这里必须硬封顶（见 H_BAL.effHeatCap 注释）。
+	return hSoftCap(
+		D(player.h.points).add(1).pow(D(H_BAL.effHeatExp).add(foldAdd("heatCoreExp", 0))),
+		H_BAL.effHeatCap, H_BAL.effHeatSoft)
 }
 
 function hPressureHeatMult() {
 	if (inTime(12)) return decimalOne
-	return D(1).plus(player.h.pressure).pow(hPressureExp())
+	// 有界常驻倍率：1 + maxBoost·(P/CAP)，满压 ×1.35。
+	// 关键是「有界」——憋着不放最多也就 ×1.35，不足以奖励无限等待；
+	// 真正的收益在泄压额度里（见 hVentPressureFactor）。
+	let ratio = D(player.h.pressure).div(H_BAL.pressureCap).min(1).max(0)
+	let boost = D(H_BAL.pressureMaxBoost).add(foldAdd("pressureMaxBoost", 0))
+	return D(1).add(ratio.pow(hPressureExp()).times(boost))
 }
 
 function hUpgHeat() {
@@ -126,22 +162,32 @@ function hCoreGainMult() {
 }
 
 function hAutoPressure() {
-	return D(H_BAL.ventAutoPressure).times(hasUpgrade("h", 32) ? 2 : 1)
+	// 自动泄压的触发压力：默认「基本满压」（升级 32 保留压力后，可以更早放）
+	if (forgeHasUpgrade("h", 32)) return D(H_BAL.pressureCap).times(0.8)
+	return D(H_BAL.pressureCap).times(0.999)
 }
 
 function canVent() {
 	return player.h.unlocked && player.h.ventCd.lte(0) && player.h.pressure.gt(0)
 }
 
+// 泄压额度倍率：(P/CAP)^ventPow —— 半压只有 1/4 额度，满压才吃满
+function hVentPressureFactor() {
+	let r = D(player.h.pressure).div(H_BAL.pressureCap).min(1).max(0)
+	return r.pow(H_BAL.ventPow)
+}
+
 function forgeVentGain() {
-	return D(tmp.pointGen).times(H_BAL.ventSeconds).times(hVentValue()).times(D(1).add(hEmberBonus()))
+	return D(tmp.pointGen).times(H_BAL.ventSeconds).times(hVentPressureFactor())
+		.times(hVentValue()).times(D(1).add(hEmberBonus()))
 }
 
 function forgeVent() {
 	if (!canVent()) return decimalZero
 	let gain = forgeVentGain()
 	player.points = player.points.add(gain)
-	player.h.pressure = decimalZero
+	let keep = hasUpgrade("h", 32) ? H_BAL.ventKeep32 : H_BAL.ventKeep
+	player.h.pressure = D(player.h.pressure).times(keep)
 	player.h.ventCd = D(H_BAL.ventCooldown)
 	player.h.vents = D(player.h.vents).add(1)
 	return gain
@@ -204,20 +250,19 @@ addLayer("h", {
 
 	// ---------- 每 tick ----------
 	update(diff) {
+		let d = D(diff)
 		// 历史峰值产出（供顶栏与统计层读取）
 		if (tmp.pointGen instanceof Decimal && tmp.pointGen.gt(player.forgePeak)) player.forgePeak = tmp.pointGen
 
-		let d = D(diff)
+		// 炉压线性上涨，到上限后停住：挂机不受惩罚，只是不再变快
 		let rate = hPressureRate()
-		if (player.h.pressure.gt(H_BAL.pressureSoftMax)) {
-			let over = player.h.pressure.minus(H_BAL.pressureSoftMax)
-			rate = rate.div(over.plus(1).pow(0.5))
-		}
-		player.h.pressure = player.h.pressure.add(rate.times(d))
+		let next = D(player.h.pressure).add(rate.times(d))
+		if (next.gt(H_BAL.pressureCap)) next = D(H_BAL.pressureCap)
+		player.h.pressure = next
 
 		if (player.h.ventCd.gt(0)) player.h.ventCd = player.h.ventCd.minus(d).max(0)
 
-		// 自动泄压：攒够阈值、且这笔钱确实能推进熔炼时才动手（不抢玩家手感）
+		// 自动泄压：攒到接近满压、且这笔钱确实能推进熔炼时才动手（不抢玩家手感）
 		if (autoOn(player.h.autoVent)) {
 			let target = D(H_BAL.ventAutoWait).times(tmp.pointGen)
 			if (player.h.ventCd.lte(0) && player.h.pressure.gte(hAutoPressure()) &&
@@ -242,26 +287,27 @@ addLayer("h", {
 
 	// ---------- 重置规则（DESIGN.md §4）----------
 	doReset(resettingLayer) {
-		// 自身熔炼：热量由引擎清零；炉芯是本层货币不清零；只释放炉压
+		// 自身熔炼：热量由引擎清零（这就是熔炼的代价）；
+		// 炉压**不受熔炼影响**——它只被泄压消耗，两者是彼此独立的决策。
 		if (resettingLayer === "h") {
-			player.h.pressure = decimalZero
-			player.h.ventCd = decimalZero
 			return
 		}
 
-		// 被更高层重置：先记住最好一轮炉芯，再按保留规则清理
-		let best = D(player.h.best)
+		// 被更高层重置：先记住「当前持有量」，再按保留规则清理。
+		// 注意：保留量必须基于**本轮持有**而不是历史最佳，否则高层反复重置
+		// 会每帧都白送一次 0.5×best，形成无限复制漏洞（实测会让产热在 12 分钟时爆炸）。
+		let held = D(player.h.points)
 		let ratio = D(player.h.reserveCore)
 		let keep = ["vents", "reserveCore", "pressure", "ventCd"]
-		if (hasUpgrade("m", 22) || hasUpgrade("t", 11)) keep.push("upgrades")
-		if (hasUpgrade("t", 11) || hasMilestone("h", 3) || hasUpgrade("r", 21) || hasMilestone("x", 0)) {
+		if (forgeHasUpgrade("m", 22) || forgeHasUpgrade("t", 11)) keep.push("upgrades")
+		if (forgeHasUpgrade("t", 11) || hasMilestone("h", 3) || forgeHasUpgrade("r", 21) || forgeHasMilestone("x", 0)) {
 			keep.push("buyables", "spentOnBuyables")
 		}
 		forgeDoReset("h", resettingLayer, keep)
 
-		// 熔炉里程碑 3 + 锻冶「废料场」：留住最好一轮炉芯的一部分
+		// 熔炉里程碑 3 + 锻冶「废料场」：留住本轮炉芯的一部分
 		if (hasMilestone("h", 2) && ratio.gt(0)) {
-			let kept = ratio.times(best)
+			let kept = ratio.times(held)
 			if (kept.gt(player.h.points)) {
 				player.h.points = kept
 				if (player.h.points.gt(player.h.best)) player.h.best = player.h.points
@@ -396,7 +442,7 @@ addLayer("h", {
 		},
 		32: {
 			title: "压力回廊",
-			description: "炉压增速 ×" + String(H_BAL.pressureRate32) + "，但泄压收益 ×" + String(H_BAL.vent32) + "。与「熔芯铸造」互斥。",
+			description: "泄压后保留 " + String(H_BAL.ventKeep32 * 100) + "% 炉压、炉压增速 ×" + String(H_BAL.pressureRate32) + "，但泄压额度 ×" + String(H_BAL.vent32) + "。与「熔芯铸造」互斥。",
 			cost: D(H_BAL.upg[32]),
 			unlocked() { return !hasUpgrade("h", 31) },
 		},
@@ -420,7 +466,7 @@ addLayer("h", {
 			requirementDescription() { return "持有 " + formatWhole(D(H_BAL.msCore1)) + " 炉芯（当前 " + formatWhole(player.h.points) + "）" },
 			done() { return player.h.points.gte(H_BAL.msCore1) },
 			effectDescription() {
-				if (!hasMilestone("m", 2)) {
+				if (!forgeHasMilestone("m", 2)) {
 					return "熔炼后保留炉芯——还需锻冶里程碑「废料场」决定比例（当前 " + format(D(player.h.reserveCore).times(100)) + "%）"
 				}
 				return "熔炼后保留 " + format(D(player.h.reserveCore).times(100)) + "% 的最好一轮炉芯"
@@ -440,11 +486,7 @@ addLayer("h", {
 		respecText: "拆除燃料棒",
 		respecMessage: "确定要拆掉所有燃料棒吗？这会重置熔炉。",
 		respec() {
-			player.h.points = player.h.points.add(player.h.spentOnBuyables)
-			for (let id in layers.h.buyables) {
-				if (!isNaN(id)) setBuyableAmount("h", id, decimalZero)
-			}
-			player.h.spentOnBuyables = decimalZero
+			forgeRespecBuyables("h")
 			doReset("h", true)
 		},
 
@@ -500,55 +542,25 @@ addLayer("h", {
 	},
 })
 
-// ---------- 燃料棒通用买/卖（两根棒共用） ----------
+// ---------- 燃料棒通用买/卖（委托给 helpers 的通用实现） ----------
 function forgeRodCost(base, scale, x) {
 	return D(base).times(D(scale).pow(D(x).add(1))).times(buyableCostFinal(1))
 }
 
 function forgeBuyRod(id, base, scale) {
-	let limit = layers.h.buyables[id].purchaseLimit
-	let amount = getBuyableAmount("h", id)
-	if (amount.gte(limit)) return
-	let bought = decimalZero
-	let n = shiftDown ? H_BAL.shiftBatch : 1
-	for (let i = 0; i < n; i++) {
-		if (amount.add(bought).gte(limit)) break
-		let c = forgeRodCost(base, scale, amount.add(bought))
-		if (player.h.points.lt(c)) break
-		player.h.points = player.h.points.sub(c)
-		player.h.spentOnBuyables = player.h.spentOnBuyables.add(c)
-		bought = bought.add(1)
-	}
-	if (bought.gt(0)) addBuyables("h", id, bought)
+	forgeBuyMany("h", id, function (x) { return forgeRodCost(base, scale, x) }, shiftDown ? H_BAL.shiftBatch : 1)
 }
 
 function forgeBuyRodMax(id, base, scale) {
-	let limit = layers.h.buyables[id].purchaseLimit
-	let amount = getBuyableAmount("h", id)
-	let bought = decimalZero
-	for (let i = 0; i < 500; i++) {
-		if (amount.add(bought).gte(limit)) break
-		let c = forgeRodCost(base, scale, amount.add(bought))
-		if (player.h.points.lt(c)) break
-		player.h.points = player.h.points.sub(c)
-		player.h.spentOnBuyables = player.h.spentOnBuyables.add(c)
-		bought = bought.add(1)
-	}
-	if (bought.gt(0)) addBuyables("h", id, bought)
+	forgeBuyMax("h", id, function (x) { return forgeRodCost(base, scale, x) })
 }
 
 function forgeSellRod(id, base, scale) {
-	let a = getBuyableAmount("h", id)
-	if (a.lte(0)) return
-	setBuyableAmount("h", id, a.minus(1))
-	let refund = forgeRodCost(base, scale, a.minus(1))
-	if (player.h.spentOnBuyables.gt(refund)) player.h.spentOnBuyables = player.h.spentOnBuyables.minus(refund)
-	player.h.points = player.h.points.add(refund)
+	forgeSellOne("h", id, function (x) { return forgeRodCost(base, scale, x) })
 }
 
 function forgeSellRodAll(id, base, scale) {
-	let n = Math.min(getBuyableAmount("h", id).toNumber(), 500)
-	for (let i = 0; i < n; i++) forgeSellRod(id, base, scale)
+	forgeSellAll("h", id, function (x) { return forgeRodCost(base, scale, x) })
 }
 
 // ---------- 文本报告 ----------

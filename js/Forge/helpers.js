@@ -110,7 +110,6 @@ function forgeForceReset(layer, keep) {
 }
 
 // ---------- 挑战 debuff 助手 ----------
-// 自动化一律走这个函数：这样 "独断" 之类的挑战只要改一处就能全局生效。
 // 注意：引擎把 activeChallenge 存成**数字** id（challenge 组件传的是 row*10+col），
 // 所以这里必须用宽松/数值比较，不能用 === "15"。
 function autoOn(flag) {
@@ -146,6 +145,98 @@ function forgeInChallenge(layer, id) {
 // 本项目所有挑战都在 t 层，给个短别名
 function inTime(id) {
 	return forgeInChallenge("t", id)
+}
+
+// ---------- 通用 buyable 买/卖/重置分配 ----------
+// 引擎没有 resetBuyables()（docs 与 js/Demo 里的写法是过时的），必须自己清；
+// 而且 for..in 会遍历到 respec/rows/cols 等非数字键，必须 !isNaN 过滤。
+// 各层统一调用下面三个函数，避免重复踩坑。
+
+// 买 n 个（自动尊重 purchaseLimit、余额、以及 Shift 批量）
+function forgeBuyMany(layer, id, costOf, n) {
+	let limit = layers[layer].buyables[id].purchaseLimit
+	let amount = getBuyableAmount(layer, id)
+	if (amount.gte(limit)) return decimalZero
+	let bought = decimalZero
+	let max = Math.max(1, Math.min(toNumber(n) || 1, 500))
+	for (let i = 0; i < max; i++) {
+		if (amount.add(bought).gte(limit)) break
+		let c = D(costOf(amount.add(bought)))
+		if (!c.isFinite() || c.lte(0)) break
+		if (player[layer].points.lt(c)) break
+		player[layer].points = player[layer].points.sub(c)
+		player[layer].spentOnBuyables = player[layer].spentOnBuyables.add(c)
+		bought = bought.add(1)
+	}
+	if (bought.gt(0)) addBuyables(layer, id, bought)
+	return bought
+}
+
+function forgeBuyMax(layer, id, costOf) {
+	return forgeBuyMany(layer, id, costOf, 500)
+}
+
+function forgeSellOne(layer, id, costOf) {
+	let a = getBuyableAmount(layer, id)
+	if (a.lte(0)) return decimalZero
+	setBuyableAmount(layer, id, a.minus(1))
+	let refund = D(costOf(a.minus(1)))
+	if (player[layer].spentOnBuyables.gt(refund)) {
+		player[layer].spentOnBuyables = player[layer].spentOnBuyables.minus(refund)
+	}
+	player[layer].points = player[layer].points.add(refund)
+	return refund
+}
+
+function forgeSellAll(layer, id, costOf) {
+	let n = Math.min(getBuyableAmount(layer, id).toNumber(), 500)
+	for (let i = 0; i < n; i++) forgeSellOne(layer, id, costOf)
+}
+
+// 重置分配：全额退还并清空本层所有 buyable（不调用任何引擎不存在的函数）
+function forgeRespecBuyables(layer) {
+	player[layer].points = player[layer].points.add(player[layer].spentOnBuyables)
+	for (let id in layers[layer].buyables) {
+		if (!isNaN(id)) setBuyableAmount(layer, id, decimalZero)
+	}
+	player[layer].spentOnBuyables = decimalZero
+	updateBuyableTemp(layer)
+}
+
+// 层存在性检查（跨层读取前一律先过一遍，缺层时不抛异常）
+function forgeHasLayer(layer) {
+	return !!(typeof player !== "undefined" && player && player[layer])
+}
+
+function forgeHasUnlocked(layer) {
+	return forgeHasLayer(layer) && !!player[layer].unlocked
+}
+
+// 安全的跨层 hasUpgrade / hasMilestone / hasChallenge：
+// 引擎版本里这些函数直接取 player[layer].upgrades，一旦该层文件缺失（分层开发期、
+// 或玩家存档里没有这层）就会抛 TypeError，并且会打断整帧更新。请一律用这三个。
+function forgeHasUpgrade(layer, id) {
+	if (!forgeHasLayer(layer)) return false
+	try { return !!hasUpgrade(layer, id) } catch (e) { return false }
+}
+
+function forgeHasMilestone(layer, id) {
+	if (!forgeHasLayer(layer)) return false
+	try { return !!hasMilestone(layer, id) } catch (e) { return false }
+}
+
+function forgeHasChallenge(layer, id) {
+	if (!forgeHasLayer(layer)) return false
+	try { return !!hasChallenge(layer, id) } catch (e) { return false }
+}
+
+// 安全读取某层货币（缺层返回 0）
+function forgeAmt(layer) {
+	return forgeHasLayer(layer) ? D(player[layer].points) : decimalZero
+}
+
+function forgeTot(layer) {
+	return forgeHasLayer(layer) ? D(player[layer].total) : decimalZero
 }
 
 function upgradeCostFinal(x) {

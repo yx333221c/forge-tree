@@ -342,6 +342,49 @@ doReset(resettingLayer) {
 
 离线收益 4h 上限；`maxTickLength()` 保持 3600。
 
+## 8.5 数值预算（强制规则 —— 实测导致的失控教训）
+
+**背景**：第一次全层联跑（12 分钟）产热飙到 `1e73/s`、炉芯 `4e18`。逐钩子拆解定位到根因：
+所有跨层加成是**乘法叠加**，而 `每根 ×k、上限 n` 形式的 buyable 与 `货币^指数` 形式的先天效果
+相乘后，回路增益 > 1，形成正反馈爆炸（热量→炉芯→热量）。
+
+因此每条「乘法通道」必须有**显式预算上限**，实现时必须自查：
+
+1. **buyable 预算**：`per^limit ≤ 1e6`（对整条通道）。
+   - 反例：`每根 ×2、上限 30` → `2^30 = 1.1e9`（实测 m 废料箱、r 催化塔都超了，直接压垮全局）。
+   - 合规：`×1.5^25 = 2.5e4`；或 `×2^15 = 3.3e4`；要更强就**降上限、提单价**，不要提 per。
+2. **先天效果预算**：`(1+货币)^指数`。**指数以 §5 各层规格为准**（m=0.4、r=0.6/0.8、t=0.6、x=1.2
+   都是 §5 明文写下的内容设计，不要为了压预算去改 §5 的指数——那会直接毁掉该层的成长手感）；
+   §8.5 只要求**指数必须配软上限**，因为高层货币会指数级膨胀。写法：
+   ```js
+   function mEffHeat() {
+   	let v = D(1).add(mPoints()).pow(M_BAL.heatExp)
+   	if (v.gt(M_BAL.effCap)) v = D(M_BAL.effCap).times(v.div(M_BAL.effCap).pow(M_BAL.effSoft))  // 软上限
+   	return v
+   }
+   ```
+   `effCap` 建议 `1e12`（自乘/回路通道例外，见下），`effSoft` 建议 `0.3–0.5`。
+   **例外**：`h` 的 `hHeatMultFromCore` / `hCoreMult` 是全局唯一与自身构成回路的通道，
+   已由 `H_BAL.effHeatCap = 1e4` 硬封顶（数值依据见 h.js 注释与规则 3 的曲线判定）。
+3. **热量通道总预算（2026-10-29 实测后修订，旧值 1e40 作废）**：
+   旧规则写的是「点燃时所有 `heat` 钩子乘积 ≤ 1e40」，**这条是我定错了**：本项目的 §5 内容规格
+   本身就要求终局拿到 t24 ×100、t31 ×1e4、x12 ×1e8、h24 ×1000 这类**静态**倍率，它们相乘就已经
+   超过 1e40。要满足旧数字只能把 §5 的奖励砍掉一个数量级，等于砍内容。所以正确的约束不是
+   「总量小」，而是「**每条通道各自有界、且不会发散到 Infinity**」。
+   - 硬约束（必须满足）：任意通道在 8 小时模拟内**不得出现 `Infinity`**，`nanScan` 必须干净。
+   - 软约束：点燃恒星时 `foldMult("heat",1)` 允许到 **1e80**（实测 2 小时纯自动化跑到 1e63，
+     仍远低于 break_eternity 的 1e308 上限，留有 17 个数量级余量）。
+   - 判定「失控 vs 正常成长」的方法：**看曲线形状**，不看绝对值。
+     正常增量成长是「斜率稳定上升」；失控是「同一通道自乘」——本项目里唯一的自乘回路是
+     `热量 →(泄压/熔炼)→ 炉芯 →(hHeatMultFromCore 的 0.25 次方)→ 热量`，
+     它由 `H_BAL.effHeatCap` 硬封顶（见 h.js 注释）。其余通道都只依赖别的层货币，不构成回路。
+4. **升级倍率与成本要成比例**：单个升级给 ×1000 热量，就必须让它贵到「不是顺手就能买」。
+   h 层已把成本表整体抬高约 30–100 倍（见 `H_BAL.upg`）并把连锁燃烧从 `2^n(n≤25)` 改成 `1.5^n(n≤14)`。
+5. **实测锚点（120 分钟纯自动化模拟，seed=1，`node tools/sim.js --minutes=120 --fast`）**：
+   `h` 0s → `m` 2m50s → `r` 14m11s → `t` 53m03s（目标 25–50，偏慢 6%）→ `x` 1h20m53s（目标 70–140 ✓）。
+   五层全部可达，说明「偏慢」只出现在 t 的门槛上，不是结构性死墙。
+
+
 ## 9. 引擎本地化维护规约（i18n 已交付，后续改动必须遵守）
 
 1. 只用 edit 工具逐处替换字面量；**禁止** `Set-Content`/`Out-File`/`-replace|Set-Content` 写文件（PowerShell 会毁 UTF-8 中文，本项目已实测损坏过一次）。
@@ -365,9 +408,32 @@ doReset(resettingLayer) {
 6. `doNotCallTheseFunctionsEveryTick` 在 mod.js 维护：我们自己写的、有副作用的函数名要登记进去。
 7. 每人交稿前必须跑：`node tools/harness.js`，要求「执行出错的文件」为空、`layers` 里出现你的层 id。
 
+### 交稿验收串（全部为永久工具，详见 tools/README.md）
+
+```
+node tools/vet.js --selftest        # 编译+编码总检，并验证检测器本身有效
+node tools/harness.js               # 引擎桩自检：加载顺序 / layers / 推进 30s / NaN / 错误统计
+node tools/sim.js --minutes=45 --fast --out=tmp.txt
+node tools/test-mid.js && node tools/test-top.js && node tools/test-side.js
+node tools/test-endgame.js 45       # 通关可达性：6 挑战 + 星核满 1000 + 点燃 + 16 铭刻
+node tools/preview.js --check       # index.html 资源 404 预检（不用起服务器）
+```
+
+实测锚点（seed=1，激进自动化 bot + 挑战 + 点燃）：
+首芯 18s → m 2.2min → r 17.3min → t 29.8min → x 33.3min → 6/6 挑战（29.8~32.5min）
+→ 星核满 1000 于 37.3min → **点燃恒星 37.3min**，16/16 铭刻全可达成，全程无 Infinity/NaN。
+
+`sim.js --minutes=120 --fast`（保守 bot，不进挑战也不点燃）：五层全解锁
+h 0s → m 2m50s → r 14m11s → t 53m03s → x 1h20m53s ✓ 落在 §8 的 70–140 区间。
+
 ### 已验证的引擎语义（避免误传）
 - upgrade/buyable 上的 `effect()`、`cost()` **每 tick 都会重新求值**（vm 探针实测：连跑 3 次 updateTemp，effect() 被调用 3 次，返回 Decimal 也正常）。跨层加成走钩子只为职责分离。
 - `player.<layer>.activeChallenge` 存的是**数字** id；`inChallenge(layer, id)` 内部已做 toNumber，可放心传数字。
 - `tmp.<layer>.buyables[id]` 只有 `cost / effect / canBuy / unlocked / purchaseLimit`，**没有** `amount`/`limit`。持有量用 `getBuyableAmount(layer,id)`。
 - normal 层：`gain=(base/requires)^exponent × gainMult^gainExp × directMult`；要「指数加成」就把 `exponent` 设 1、指数写进 `gainExp()`。static 层：`gainMult` 乘在**成本**上、`directMult` 乘在**产出**上。
+- **`requires` 可以写成函数** `requires() { return new Decimal(X_BAL.requires) }`：`updateTempData` 会把函数求值进 `tmp.<l>.requires`，于是 `--set` 能扫参门槛。写成 `new Decimal(...)` 字面量则被加载期捕获，之后改 BAL 无效（m/r 已改函数形式）。
+- **`doReset` 的执行顺序是 `onPrestige → addPoints → updateMilestones → rowReset`**。含义：本次重置**新授予的里程碑**在更低层的 `doReset` 被调用时**已经可见**。例：`doReset("x")` 时只要 `x.total ≥ 5`，x 里程碑 0 会在清空 t 之前授予，于是 t 的「按 x 里程碑 0 决定是否保留凝时升级」读到的是 true —— 这是契约行为，测试要按这个语义写断言。
+- **引擎的 `autobuyUpgrades` 用实时 `canAfford()` 筛选，但 `buyUpg` 只校验上一帧的 `tmp.unlocked`**。同一 tick 内连买两个互斥升级会都成功（实测 h 31/32、m 31/32、r 23/24 全中），真人开自动化就会踩。已在 `js/utils.js:buyUpg` 补实时 `unlocked()` 校验，语义统一为**先到者胜、后买被拒**；各层不要再自己加 `onPurchase` 顶替/退款守卫（那种按当下成本退款的死代码一旦有路径绕过 `buyUpg` 就会变成刷钱口）。
+- **`setupBuyables`（`js/technical/temp.js`）不是幂等的**：它把 `b.cost` 原地换成读 `b.actualCostFunction` 的包装，第二次调用会让 `cost → actualCostFunction → cost` 无限递归（RangeError）。浏览器只在页面加载跑一次所以真人碰不到，但任何重复初始化（测试桩二次 `newGame()`、热重载）都会炸。已加 `__costWrapped` 幂等标志；调用方仍应「一个场景一次 `boot()`」。
+
 
