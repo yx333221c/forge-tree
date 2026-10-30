@@ -371,9 +371,9 @@ addLayer("h", {
 	infoboxes: {
 		lore: {
 			title: "炉边记事",
-			body: "虚空冷得不肯发光。你唯一的热量来源，是这座不知道谁造的炉子。<br><br>" +
-				"炉压是它的脾性：憋着，它烧得越旺；泄了，它给你一笔横财，然后重新沉默。<br>" +
-				"熔炉不会累。你要学的是什么时候把手从阀门上拿开。",
+			body: "这里只有热量是自己涨的，其余都得你动手。<br><br>" +
+				"炉压越高，热量涨得越快；泄压一次，结清大约三百秒的产量。压力低时这一笔会大幅缩水——半压只剩十六分之一。<br>" +
+				"炉压十七秒左右憋满，之后不再上涨：等着不亏，但也白等。",
 			titleStyle: { 'color': "#ff7a18" },
 		},
 	},
@@ -469,7 +469,7 @@ addLayer("h", {
 				if (!forgeHasMilestone("m", 2)) {
 					return "熔炼后保留炉芯——还需锻冶里程碑「废料场」决定比例（当前 " + format(D(player.h.reserveCore).times(100)) + "%）"
 				}
-				return "熔炼后保留 " + format(D(player.h.reserveCore).times(100)) + "% 的最好一轮炉芯"
+				return "熔炼后保留 " + format(D(player.h.reserveCore).times(100)) + "% 的本轮炉芯（按熔炼前的持有量算）"
 			},
 			tooltip: "这是熔炉与锻冶的联动：先去点亮锻冶的「废料场」。",
 		},
@@ -583,7 +583,18 @@ function forgeTechReport() {
 	s += "炉压增速：<b>" + format(hPressureRate()) + "/s</b>　炉压指数：<b>" + format(hPressureExp()) + "</b><br>"
 	s += "泄压：<b>" + format(H_BAL.ventSeconds) + " 秒产量</b> × 阀门 " + timesFormat(hVentValue()) +
 		" × 余烬 " + timesFormat(D(1).add(hEmberBonus())) + "<br>"
-	s += "自动熔炉：炉芯 " + format(tmp.h.passiveGeneration) + "/s<br>"
+	// 引擎语义（js/game.js: generatePoints 用 resetGain × passiveGeneration）：
+	// passiveGeneration 是「每秒完成几次熔炼」，不是「每秒几个炉芯」。单次可得炉芯随进度水涨船高，
+	// 所以这里两个数都给出，避免玩家把 1 读成 1 炉芯/秒。
+	let autoP = (typeof tmp !== "undefined" && tmp.h) ? D(tmp.h.passiveGeneration) : decimalZero
+	if (autoP.gt(0)) {
+		let per = tmp.h.resetGain
+		// resetGain 为 0 表示热量还不够熔一次，此时别显示「约 0 炉芯/秒」（读起来像坏了）
+		s += "自动熔炉：<b>" + format(autoP) + " 次熔炼/秒</b>" +
+			((per && per.gt(0)) ? "（当前约 " + format(autoP.times(per)) + " 炉芯/秒）" : "（热量还不够熔一次，暂时停产）") + "<br>"
+	} else {
+		s += "自动熔炉：未开启<br>"
+	}
 	s += "<br><b>热量来源分解</b><br>"
 	s += "　炉芯：" + timesFormat(hHeatMultFromCore()) + "<br>"
 	s += "　炉压：" + timesFormat(hPressureHeatMult()) + "<br>"

@@ -199,7 +199,7 @@ function mUpgCost(id) {
 	return v.max(decimalOne).ceil()
 }
 function mRouteText() {
-	if (mUpg("m", 31)) return "<b>水力锻机</b>（熔炉自动产出 +" + format(mUpgHPassive()) + "）"
+	if (mUpg("m", 31)) return "<b>水力锻机</b>（熔炉自动熔炼 " + format(mUpgHPassive()) + " 次/秒）"
 	if (mUpg("m", 32)) return "<b>行会盟约</b>（热量随泄压次数增长，当前 " + timesFormat(mUpgGuildMult()) + "）"
 	return "尚未选择（第 3 行二选一）"
 }
@@ -247,7 +247,10 @@ function mHookIngotBuy() { return mBuyEffect("11", mAmt("11")) }
 function mHookIngotExpBonus() { return mUpgExpBonus() }
 function mHookVentValue() { return mUpgVentMult() }
 function mHookPressureRate() { return mUpgPressureMult() }
-function mHookHPassiveAdd() { return mUpgHPassive() }
+// 自动熔炼属于「自动化」，§5.4 挑战 15「独断」要求所有自动化失效，故走 autoOn。
+// 本层其它钩子（heat/coreGain/ventValue…）是被动加成，不受独断影响，保持纯读。
+// 显示仍用 mUpgHPassive()（升级本身一直都在），只是实际生效被断掉。
+function mHookHPassiveAdd() { return autoOn(true) ? mUpgHPassive() : decimalZero }
 
 mRegister("heat", mHookHeatInnate)					// 锭条先天 → 热量
 mRegister("heat", mHookHeatUpg)						// 合金模 / 匠魂 / 行会盟约
@@ -452,7 +455,7 @@ addLayer("m", {
 		},
 		22: {
 			title: "废钢回炉·改",
-			description: "锻造重置熔炉时，<b>保留熔炉的全部升级</b>。<br><i>影响熔炉（Hearth）层，由熔炉的重置规则读取。</i>",
+			description: "锻造重置熔炉时，<b>保留熔炉的全部升级</b>。<br><i>影响熔炉（Hearth）层。</i>",
 			cost() { return mUpgCost(22) },
 			unlocked() { return mUpgradeRowOpen(2) },
 		},
@@ -477,11 +480,14 @@ addLayer("m", {
 		},
 		31: {
 			title: "水力锻机",
-			description: "熔炉自动产出 +0.5（每把炉子自己打芯）。<br><i>影响熔炉（Hearth）层的自动产出（passiveGeneration）。</i><br><b>与「行会盟约」互斥，二选一。</b>",
+			description() {
+				return "熔炉每秒自动完成 " + format(new Decimal(M_BAL.hydroPassive)) + " 次熔炼。<br>" +
+					"<i>影响熔炉（Hearth）层。</i><br><b>与「行会盟约」互斥，二选一。</b>"
+			},
 			cost() { return mUpgCost(31) },
 			unlocked() { return mUpgradeRowOpen(3) && !mUpg("m", 32) },
 			effect() { return mUpgHPassive() },
-			effectDisplay() { return "熔炉自动产出 +" + format(mUpgHPassive()) },
+			effectDisplay() { return "熔炉自动熔炼 " + format(mUpgHPassive()) + " 次/秒" },
 		},
 		32: {
 			title: "行会盟约",
@@ -524,7 +530,7 @@ addLayer("m", {
 					format(forgeHasLayer("h") ? mNum(player.h.reserveCore) : decimalZero) + "）"
 			},
 			unlocked() { return mMs("m", 1) },
-			tooltip: "本层在熔炼瞬间写入熔炉的保留比例（内部字段 player.h.reserveCore），由熔炉的重置规则使用。",
+			tooltip: "熔炼瞬间会按这里的比例保留炉芯，供熔炉的重置规则使用。",
 		},
 		3: {
 			requirementDescription() { return "累计 2000 锭条<br>" + mGoalText(3) },
@@ -637,9 +643,9 @@ addLayer("m", {
 		lore: {
 			title: "炉边记事 · 锻",
 			body() {
-				return "火只给你形状，锤子才给你名字。<br>" +
-					"炉芯是原料，锭条是成品。锻造不创造任何热量，它只是让热量学会排队。<br>" +
-					"每一次落锤都在熔炉里记账：芯少了，炉膛空了，但锭条会一直替你说话。"
+				return "锻造把炉芯打成锭条：五十炉芯起一锭，本身不产热量。<br>" +
+					"换来的是锭条反过来抬高热量、炉芯产出和炉压增速，所以同样的炉子，锻过之后烧得更快。<br>" +
+					"代价是锻造会重置熔炉。攒够五百锭条后，每轮能留下本轮炉芯的一半。"
 			},
 			titleStyle: { "color": "#4bdc13" },
 		},
@@ -683,9 +689,8 @@ addLayer("m", {
 				"h-line",
 				["display-text", function() {
 					return "本层没有挑战。挑战在凝时（Tempo）层的沙漏里。<br>" +
-						"回炉重熔会全额返还投入的锭条；更高层重置时，只有契约允许的升级与购入件能活下来" +
-						"（反应「再生」或凝时「模具」）。<br>" +
-						"挑战「独断」进行中时，本层的全部自动化都会停摆（判定统一走 autoOn）。"
+						"回炉重熔会全额返还投入的锭条；更高层重置时，只有反应「再生」或凝时「模具」点亮的升级与购入件能保留下来。<br>" +
+						"挑战「独断」进行中时，本层的全部自动化都会停摆。"
 				}],
 				["blank", "10px"],
 				["bar", "forgeGauge"],

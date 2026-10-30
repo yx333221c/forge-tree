@@ -292,14 +292,16 @@ function tHookVentValueT12() { return tIn(12) ? new Decimal(T_BAL.t12VentCut) : 
 function tHookHeatT14() { return tIn(14) ? new Decimal(T_BAL.t14HeatCut) : decimalOne }
 function tHookHeatT16() { return tIn(16) ? new Decimal(T_BAL.t16HeatCut) : decimalOne }
 function tHookStartT16() { return tIn(16) ? new Decimal(T_BAL.t16StartCut) : decimalOne }
+// 熔炉自动产出（hPassiveAdd 通道，加法）：把里程碑 3 与挑战 16 的奖励交给 h 层折叠
+function tHookHearthAutoGen() { return forgeHearthAutoGen() }
 // 13 贫瘠 / 15 独断 由 helpers.buyableDebuff / helpers.autoOn 内置；
 // 本层只保证自己的自动化也走 autoOn()（见 automate 与 forgeHearthAutoGen）。
 
 // ---------------- 跨层数值（其它层通过这两个函数读凝时；见文件头集成点） ----------------
-function forgeHearthAutoGen() { // 熔炉 passiveGeneration：里程碑 3 ＋ 挑战 16 奖励
+function forgeHearthAutoGen() { // 熔炉 passiveGeneration：里程碑 3（需开开关）＋ 挑战 16 奖励（永久）
 	if (!autoOn(true)) return 0
 	let g = 0
-	if (tMs(3)) g += T_BAL.autoHearthGen
+	if (tMs(3) && tFlag("autoHearth")) g += T_BAL.autoHearthGen
 	if (tChal(16)) g += T_BAL.rw16HearthGen
 	return g
 }
@@ -373,7 +375,7 @@ addLayer("t", {
 			"热量放大 " + timesFormat(tEffHeat()) +
 			"，炉芯／锭条／时序产出放大 " + timesFormat(tEffGain()) +
 			"，重置后的初始热量抬高 " + timesFormat(tEffStart()) +
-			"，并给中层公式指数 +" + format(tEffMidExp()) + "（封顶 +" + format(new Decimal(T_BAL.midExpCap)) + "）"
+			"，并给炉芯与锭条的公式指数 +" + format(tEffMidExp()) + "（封顶 +" + format(new Decimal(T_BAL.midExpCap)) + "）"
 	},
 
 	// ---------- 显示 ----------
@@ -498,13 +500,13 @@ addLayer("t", {
 	upgrades: {
 		11: {
 			title: "记忆合金",
-			description: "<b>熔炉</b>的升级与燃料棒在更高层的重置中保留下来（§4）。<br><i>影响熔炉（Hearth）层，由它的 doReset 读取。</i>",
+			description: "<b>熔炉</b>的升级与燃料棒在更高层的重置中保留下来。",
 			cost() { return tUpgCost(11) },
 			tooltip: "高层重置不再把熔炉洗白：前期攒下的升级全部留住。",
 		},
 		12: {
 			title: "时序模具",
-			description: "<b>锻造</b>的升级在锻冶／反应／凝时／熔星的重置中保留下来（§4）。<br><i>影响锻造（Mill）层，由它的 doReset 读取。</i>",
+			description: "<b>锻造</b>的升级在锻冶／反应／凝时／熔星的重置中保留下来。",
 			cost() { return tUpgCost(12) },
 		},
 		13: {
@@ -516,24 +518,24 @@ addLayer("t", {
 			title: "Chronon 透镜",
 			description() {
 				return "凝时先天效果指数 +" + format(new Decimal(T_BAL.lens14)) +
-					"（当前 " + format(tInnateExp()) + "）。<br><i>影响全部下游：热量／中层产出／初始热量。</i>"
+					"（当前 " + format(tInnateExp()) + "）。<br><i>同时抬高热量、锻冶与反应的产出、以及重置后的初始热量。</i>"
 			},
 			cost() { return tUpgCost(14) },
-			tooltip: "指数是本层最值钱的一档：先天倍数 = (1+时序)^指数。",
+			tooltip: "指数是凝时最值钱的一档：先天倍数 = (1+时序)^指数。",
 		},
 		21: {
 			title: "相位鼓风",
-			description: "<b>熔炉</b>炉芯公式指数 +" + T_BAL.blast21 + "。<br><i>影响熔炉（Hearth）层的 gainExp。</i>",
+			description: "<b>熔炉</b>炉芯公式指数 +" + T_BAL.blast21 + "。<br><i>影响熔炉（Hearth）层。</i>",
 			cost() { return tUpgCost(21) },
 		},
 		22: {
 			title: "循环锭模",
-			description: "<b>反应</b>重置时保留<b>锻造</b>的可购项（§4）。<br><i>影响锻造（Mill）层，由它的 doReset 读取。</i>",
+			description: "<b>反应</b>重置时保留<b>锻造</b>的可购项。",
 			cost() { return tUpgCost(22) },
 		},
 		23: {
 			title: "脉冲回收",
-			description() { return "<b>熔炉</b>泄压收益 ×" + format(new Decimal(T_BAL.pulse23)) + "。<br><i>影响熔炉（Hearth）层的 ventValue。</i>" },
+			description() { return "<b>熔炉</b>泄压收益 ×" + format(new Decimal(T_BAL.pulse23)) + "。<br><i>影响熔炉（Hearth）层。</i>" },
 			cost() { return tUpgCost(23) },
 		},
 		24: {
@@ -597,22 +599,22 @@ addLayer("t", {
 		3: {
 			requirementDescription() { return "累计 " + formatWhole(new Decimal(T_BAL.msTotal[3])) + " 时序（当前 " + formatWhole(tTotal()) + "）" },
 			done() { return tTotal().gte(T_BAL.msTotal[3]) },
-			effectDescription: "解锁「熔炼全自动」：熔炉每秒自动完成 " + T_BAL.autoHearthGen + " 次熔炼产出。",
+			effectDescription: "解锁「熔炼全自动」：熔炉每秒自动完成 " + T_BAL.autoHearthGen + " 次熔炼，不必再手动点「熔炼」。",
 			toggles: [["t", "autoHearth"]],
-			tooltip: "数值由本层 forgeHearthAutoGen() 提供，需要 h 层 passiveGeneration 读取它。",
+			tooltip: "开关在这里；关掉后熔炉就不再自动熔炼。挑战「独断」期间也会停。",
 		},
 		4: {
 			requirementDescription() { return "累计 " + formatWhole(new Decimal(T_BAL.msTotal[4])) + " 时序（当前 " + formatWhole(tTotal()) + "）" },
 			done() { return tTotal().gte(T_BAL.msTotal[4]) },
-			effectDescription: "解锁「自动反应」：覆盖反应层的 autoPrestige。",
+			effectDescription: "解锁「自动反应」：让反应层达到门槛时自己推进。",
 			toggles: [["t", "autoReaction"]],
-			tooltip: "数值由本层 forgeAutoReaction() 提供，需要 r 层 autoPrestige 读取它。",
+			tooltip: "开启后，反应会自己推进，不必再手动点「反应」。",
 		},
 		5: {
 			requirementDescription() { return "累计 " + formatWhole(new Decimal(T_BAL.msTotal[5])) + " 时序（当前 " + formatWhole(tTotal()) + "）" },
 			done() { return tTotal().gte(T_BAL.msTotal[5]) },
 			effectDescription: "「铭刻」成就层给成的热量加成 +100%。",
-			tooltip: "ach.js 用 hasMilestone('t',5) 自行加倍，本层只负责解锁这条里程碑。",
+			tooltip: "解锁后，铭刻给成的热量加成翻倍。本层只负责解锁这条里程碑，加成由铭刻层生效。",
 		},
 	},
 
@@ -665,7 +667,7 @@ addLayer("t", {
 			completionLimit: 1,
 			unlocked() { return tChal(12) },
 			challengeDescription() {
-				return "<b>限制：</b>所有层的可购项效果减半（helpers.buyableDebuff 内置）。" +
+				return "<b>限制：</b>所有层的可购项效果减半，" +
 					"燃料棒、轧辊、催化塔全都成了空壳。"
 			},
 			goalDescription() {
@@ -704,8 +706,8 @@ addLayer("t", {
 			completionLimit: 1,
 			unlocked() { return tChal(14) },
 			challengeDescription() {
-				return "<b>限制：</b>所有层的自动化全部失效（helpers.autoOn 内置本判定），" +
-					"包括凝时自己的总开关。每一件事都得你亲手做。"
+				return "<b>限制：</b>所有层的自动化全部失效，" +
+					"包括凝时自己的总开关，每一件事都得亲手做。"
 			},
 			goalDescription() {
 				let g = decimalZero
@@ -737,13 +739,13 @@ addLayer("t", {
 			},
 			canComplete() { return tBase().gte(T_BAL.goal16) },
 			rewardDescription() {
-				return "永久：熔炉自动产出 +" + T_BAL.rw16HearthGen + "（passiveGeneration），且热量 ×" +
+				return "永久：熔炉每秒自动完成 " + T_BAL.rw16HearthGen + " 次熔炼，且热量 ×" +
 					format(new Decimal(T_BAL.rw16Heat)) + "。当前挑战奖励合计热量 " + timesFormat(tChalHeatReward()) + "。"
 			},
 			rewardEffect() { return tChal(16) ? new Decimal(T_BAL.rw16Heat) : decimalOne },
 			rewardDisplay() {
 				return timesFormat(tChal(16) ? new Decimal(T_BAL.rw16Heat) : decimalOne) +
-					"　熔炉自动：" + (tChal(16) ? "已解锁 +" + T_BAL.rw16HearthGen + "/s" : "未解锁")
+					"　熔炉自动：" + (tChal(16) ? "已解锁 " + T_BAL.rw16HearthGen + " 次熔炼/秒" : "未解锁")
 			},
 			style() { return tIn(16) ? { 'border': "3px solid #9b59d6", 'box-shadow': "0 0 18px #9b59d6" } : {} },
 		},
@@ -887,11 +889,10 @@ addLayer("t", {
 	infoboxes: {
 		lore: {
 			title: "炉边记事 · 凝时",
-			body: "触媒是会在手里融化的东西。你学会的第一件事，是把它冻成时序。<br><br>" +
-				"时间并不仁慈，它只是肯为你等。凝得越久，下面几层烧得越稳——" +
-				"炉芯、锭条、重置后的初始热量，都被同一段时间抬高。<br>" +
-				"你也可以把时间切成六份，每份换一个永久的代价。挑战里你什么都留不下，" +
-				"除了那段记忆本身。",
+			body: "凝时把触媒冻成时序，十个起一手。攒下的时序同时抬高热量、炉芯与锭条的产出，" +
+				"以及每次重置之后的起始热量。<br><br>" +
+				"这一层另有六个挑战。进去会清空熔炉、锻造和反应的进度，只留时序本身；" +
+				"每完成一个，换来一份永久生效的奖励。",
 			titleStyle: { 'color': "#9b59d6" },
 		},
 	},
@@ -946,8 +947,8 @@ function tNextMilestone() {
 }
 
 function tRouteText() {
-	if (tUpg(31)) return "<b>时之流</b>（炉压增速 ×" + T_BAL.flow31Rate + " ＋ 热量 ×1e4）"
-	if (tUpg(32)) return "<b>时之滞</b>（中层产出 ×" + T_BAL.drag32Gain + " ＋ 可购项成本 ×" + T_BAL.drag32Cost + "）"
+	if (tUpg(31)) return "<b>时之流</b>（炉压增速 ×" + T_BAL.flow31Rate + " ＋ 热量 ×" + format(new Decimal(T_BAL.flow31Heat)) + "）"
+	if (tUpg(32)) return "<b>时之滞</b>（炉芯与锭条产出 ×" + T_BAL.drag32Gain + " ＋ 可购项成本 ×" + T_BAL.drag32Cost + "）"
 	return "尚未选择（第 3 行二选一）"
 }
 
@@ -1009,28 +1010,28 @@ function tFormulaReport() {
 		"　挑战15奖励 " + timesFormat(tHookChrononReward()) +
 		"　时之砂 " + timesFormat(tHookChrononHourglass()) +
 		"　过载 " + timesFormat(tHookChrononSurge()) + "<br>"
-	s += "　指数 = 基础 " + T_BAL.baseExp + " ＋ 钩子 " + format(tFoldAddSafe("chrononExpBonus", 0)) + "<br><br>"
+	s += "　指数 = 基础 " + T_BAL.baseExp + " ＋ 加成 " + format(tFoldAddSafe("chrononExpBonus", 0)) + "<br><br>"
 
-	s += "<b>本层给下游的加成</b><br>"
+	s += "<b>凝时给前面几层带来的加成</b><br>"
 	s += "　热量：" + timesFormat(tEffHeat()) + " × 升级 " + timesFormat(tHookHeatUpg()) +
 		" × 挑战奖励 " + timesFormat(tHookHeatReward()) + "<br>"
 	s += "　炉芯／锭条产出：" + timesFormat(tEffGain()) + " × 升级 " + timesFormat(tHookCoreUpg()) + "<br>"
-	s += "　中层公式指数：+" + format(tEffMidExp()) + "（相位鼓风另 +" + format(new Decimal(T_BAL.blast21)) + "）<br>"
+	s += "　炉芯／锭条公式指数：+" + format(tEffMidExp()) + "（相位鼓风另 +" + format(new Decimal(T_BAL.blast21)) + "）<br>"
 	s += "　初始热量：" + timesFormat(tEffStart()) + "<br>"
-	s += "　熔炉自动产出：" + forgeHearthAutoGen() + "/s　自动反应：" + (forgeAutoReaction() ? "已开启" : "未开启") + "<br>"
+	s += "　熔炉自动熔炼：" + forgeHearthAutoGen() + " 次/秒　自动反应：" + (forgeAutoReaction() ? "已开启" : "未开启") + "<br>"
 	s += "　可购项成本折扣：" + timesFormat(tHookBuyableCost()) + "<br><br>"
 
-	s += "<b>六个挑战的 debuff 是怎么落地的</b><br>"
-	s += "　11 冷炉：熔炉炉芯加成归一（h.js）＋ 其它来源 ×" + T_BAL.t11CoreCut + "（本层钩子兜底）<br>"
-	s += "　12 无压：炉压倍率归一（h.js）＋ 增速 ×" + T_BAL.t12RateCut + "、泄压 ×" + T_BAL.t12VentCut + "<br>"
-	s += "　13 贫瘠：可购项效果减半（helpers.buyableDebuff）<br>"
+	s += "<b>六个挑战的限制</b><br>"
+	s += "　11 冷炉：炉芯不再给热量加成，其余炉芯来源也 ×" + T_BAL.t11CoreCut + "<br>"
+	s += "　12 无压：炉压不再给热量加成，涨压 ×" + T_BAL.t12RateCut + "、泄压收益 ×" + T_BAL.t12VentCut + "<br>"
+	s += "　13 贫瘠：所有可购项的效果减半<br>"
 	s += "　14 迟缓：热量 ×" + T_BAL.t14HeatCut + "<br>"
-	s += "　15 独断：全部自动化失效（helpers.autoOn）<br>"
-	s += "　16 归零：初始热量 ×" + T_BAL.t16StartCut + "、热量 ×" + T_BAL.t16HeatCut + "<br><br>"
-	s += "<b>奖励的落地位置</b><br>"
-	s += "　11 → heat ×" + T_BAL.rw11Heat + "　12 → pressureExp +" + T_BAL.rw12PressureExp +
-		"　13 → buyableCost ×" + T_BAL.rw13BuyableCost + "　14 → 先天指数 +" + T_BAL.rw14InnateExp +
-		"　15 → chrononGain ×" + T_BAL.rw15Chronon + "　16 → heat ×" + T_BAL.rw16Heat + " 与熔炉自动产出<br>"
+	s += "　15 独断：所有自动功能停摆<br>"
+	s += "　16 归零：重置后的起始热量 ×" + T_BAL.t16StartCut + "、热量 ×" + T_BAL.t16HeatCut + "<br><br>"
+	s += "<b>完成后的永久奖励</b><br>"
+	s += "　11 → 热量 ×" + T_BAL.rw11Heat + "　12 → 炉压响应指数 +" + T_BAL.rw12PressureExp +
+		"　13 → 可购项成本 ×" + T_BAL.rw13BuyableCost + "　14 → 凝时先天效果指数 +" + T_BAL.rw14InnateExp +
+		"　15 → 时序产出 ×" + T_BAL.rw15Chronon + "　16 → 热量 ×" + T_BAL.rw16Heat + " 与熔炉自动熔炼<br>"
 	s += "</div>"
 	return s
 }
@@ -1082,3 +1083,8 @@ tRegister("ventValue", tHookVentValueT12, 5)
 tRegister("heat", tHookHeatT14, 6)
 tRegister("heat", tHookHeatT16, 6)
 tRegister("startPoints", tHookStartT16, 5)
+
+// 熔炉自动产出：h.js 的 passiveGeneration 折叠的就是这条通道（加法）。
+// 里程碑 3 与挑战 16 的奖励此前只在凝时面板里显示、从未接进 h 层，玩家实际拿不到，
+// 这里补上注册。（m.js 的「水力锻机」早已注册同名钩子，两者相加。）
+tRegister("hPassiveAdd", tHookHearthAutoGen)

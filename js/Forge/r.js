@@ -454,7 +454,13 @@ addLayer("r", {
 	},
 
 	autoUpgrade() { return autoOn(rFlag("autoBuy") && rMs("r", 0)) },
-	autoPrestige() { return autoOn(rFlag("autoRun") && rMs("r", 3)) },
+	// §5.4 里程碑 4「自动反应」要求它能覆盖本层的 autoPrestige。
+	// forgeAutoReaction 定义在 t.js（加载顺序在本文件之后），因此必须做存在性守卫。
+	autoPrestige() {
+		let own = rFlag("autoRun") && rMs("r", 3)
+		let fromTempo = (typeof forgeAutoReaction === "function") ? forgeAutoReaction() : false
+		return autoOn(own || fromTempo)
+	},
 	automate() {
 		if (!rUnlocked()) return
 		if (!autoOn(rFlag("autoFill") && rMs("r", 2))) return
@@ -506,7 +512,7 @@ addLayer("r", {
 		},
 		21: {
 			title: "反应再生",
-			description: "反应重置时，<b>保留锻造的全部升级与本层以下的购入件</b>（含熔炉购入件）。<br><i>影响锻造（Mill）与熔炉（Hearth）层，由它们的 doReset 读取。</i>",
+			description: "反应重置时，<b>保留锻造的全部升级与本层以下的购入件</b>（含熔炉购入件）。",
 			cost() { return rUpgCost(21) },
 			unlocked() { return rUpgradeRowOpen(2) },
 		},
@@ -703,9 +709,9 @@ addLayer("r", {
 		lore: {
 			title: "炉边记事 · 反",
 			body() {
-				return "锻好的锭条不肯自己变强。得有人往里面通气。<br>" +
-					"反应不消耗锤子，它消耗耐心：成本按你已持有的触媒成倍上涨，越早停手越便宜。<br>" +
-					"管线里没有善恶，只有平衡。你唯一能做的是把平衡推向自己这边。"
+				return "反应把锭条换成触媒：十个起一手，之后每多持有一个，下一个就要贵三倍。<br>" +
+					"触媒同时抬高热量和锭条产出，所以它贵得有道理。<br>" +
+					"反应会重置熔炉与锻造，留不留得住东西，取决于你点开了哪些升级和里程碑。"
 			},
 			titleStyle: { "color": "#4169e1" },
 		},
@@ -749,10 +755,10 @@ addLayer("r", {
 				"h-line",
 				["display-text", function() {
 					return "本层没有挑战。挑战在凝时（Tempo）层的沙漏里。<br>" +
-						"static 层的规则：<b>成本倍数（catalystCost）越小越好，产出倍数（catalystDirect）越大越好。</b><br>" +
+						"反应层看的是合成成本，不是产量：下面两个读数，<b>成本倍数越小越便宜，产出倍数越大越划算</b>。<br>" +
 						"当前成本倍数 " + timesFormat(rCostMult()) + "，产出倍数 " + timesFormat(rDirectMult()) + "<br>" +
 						"更高层重置时，本层购入件只有在熔星里程碑 0 之后才留得住；本层升级一律清空。<br>" +
-						"挑战「独断」进行中时，本层的全部自动化都会停摆（判定统一走 autoOn）。"
+						"挑战「独断」进行中时，本层的全部自动化都会停摆。"
 				}],
 				["blank", "10px"],
 				["bar", "conversion"],

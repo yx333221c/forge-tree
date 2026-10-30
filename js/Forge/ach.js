@@ -24,10 +24,11 @@ var ACH_BAL = {
 	// 「全满」（16 枚 + 凝时里程碑 5）时的理论值：
 	//   inscriptionMult = 1.02^16 × 2 = 1.373 × 2 = 2.75
 	//   专属热量 = 6 × 10 = 60
-	//   heat 合计 ≈ 165，远低于 budgetHeat=1e3，也远低于 §8.5 第 3 条的
-	//   「所有 heat 钩子乘积 ≤ 1e40」总盘子 —— 铭刻是锦上添花，不是主引擎。
+	//   heat 合计 ≈ 165，远低于 budgetHeat=1e3。铭刻是锦上添花，不是主引擎
+	//   （§8.5 修订后的口径：硬约束是「不得出现 Infinity/NaN」，总量软阈值 1e80）。
 	// 自检函数：achFullHeatBudget()（理论全满值）/ achHeatChannel()（当前实测值）
-	//          / achOverBudget()（是否越预算，stats 层会直接显示）
+	//          / achOverBudget()（是否顶到夹持）—— 供 tools/ 下的自检与模拟使用，
+	//          玩家界面不显示这些内部读数。
 	budgetHeat: 1e3,        // heat 通道硬夹持
 	budgetCore: 3,          // coreGain 通道硬夹持
 	budgetInscription: 32,  // 铭刻基础项（1.02^n × 纪念碑）的独立夹持，防止 count 被改大
@@ -111,9 +112,9 @@ addLayer("ach", {
 
 	tooltip() {
 		return "铭刻 " + formatWhole(D(achievementCount())) + " / " + formatWhole(D(ACH_BAL.count)) +
-			"　热量通道 " + timesFormat(achHeatChannel())
+			"　热量 " + timesFormat(achHeatChannel())
 	},
-	tooltipLocked() { return "炉壁上的刻痕一直都在。" },
+	tooltipLocked() { return "铭刻会在你达成条件时自动刻上。" },
 
 	// 本层给下游的东西全部通过 heat / coreGain 钩子给出（两条通道都有预算夹持）
 	effect() {
@@ -124,9 +125,7 @@ addLayer("ach", {
 		return "已点亮 <b>" + formatWhole(D(achievementCount())) + "</b> 枚铭刻，热量 " + timesFormat(m) +
 			"（+" + format(D(m).minus(1).times(100)) + "%）" +
 			(achMonumentOn() ? "，其中凝时「铭者纪念碑」的 ×2 <b>已生效</b>" : "") +
-			"；炉芯产出 " + timesFormat(achExclusiveCoreMult()) +
-			"<br>预算：heat 通道上限 " + timesFormat(D(ACH_BAL.budgetHeat)) +
-			(achOverBudget() ? "（<b>已顶到上限</b>）" : "（未顶到上限）")
+			"；炉芯产出 " + timesFormat(achExclusiveCoreMult())
 	},
 
 	// ============================================================
@@ -318,10 +317,9 @@ addLayer("ach", {
 	infoboxes: {
 		lore: {
 			title: "炉边记事 · 刻痕",
-			body: "虚空冷得不肯发光，于是你把日子刻在炉壁上。<br><br>" +
-				"看不见的格位不是空的——那是<b>未知铭刻</b>：位置就在那里，只是还没被你刻亮。<br>" +
-				"把鼠标停在上面，能读出口供与进度；剩下的只能靠猜。<br>" +
-				"炉壁不催你。它只是数着。",
+			body: "炉壁上的刻痕记的是你做到过的事：第一次熔炼、第一次落锤、点燃恒星。<br><br>" +
+				"空着的格位是还没完成的铭刻，把鼠标停在上面可以看到条件和当前进度。<br>" +
+				"每点亮一枚，热量加成涨一点；铭刻不受任何重置影响。",
 			titleStyle: { 'color': "#ffe14d" },
 			bodyStyle: { 'color': "#e8dcae" },
 		},
@@ -646,8 +644,7 @@ function achDoneText(flavor) {
 	let m = achHeatChannel()
 	return flavor + "<br><br>" + fmtTarget(D(achievementCount()), D(ACH_BAL.count), "枚铭刻") +
 		"<br>当前铭刻加成：<b>" + timesFormat(m) + "</b> 热量（+" + format(D(m).minus(1).times(100)) + "%）" +
-		(achMonumentOn() ? "，×2 <b>已生效</b>" : "") +
-		"<br><br><span style='color:#ffe14d'>炉壁替你记着。</span>"
+		(achMonumentOn() ? "，×2 <b>已生效</b>" : "")
 }
 
 function achHeader() {
@@ -661,25 +658,13 @@ function achHeader() {
 		formatWhole(D(hidden)) + " 枚是<b>未知铭刻</b>（格位占着，只是还没亮）。<br>" +
 		"当前加成 <b>+" + format(D(m).minus(1).times(100)) + "%</b>（" + timesFormat(m) + " 热量）" +
 		(achMonumentOn() ? "，<b>×2 已生效</b>（凝时里程碑 5「铭者纪念碑」）" : "，×2 尚未生效（需要凝时里程碑 5）") +
-		"<br>预算 " + timesFormat(D(ACH_BAL.budgetHeat)) + "　" + achBudgetBar(m) +
 		"</div>"
-}
-
-// 预算占用条：让「顶到上限」这件事在 UI 上可见，而不是藏在公式里。
-function achBudgetBar(cur) {
-	let ratio
-	try {
-		ratio = D(cur).div(D(ACH_BAL.budgetHeat)).min(1).max(0)
-	} catch (e) {
-		return ""
-	}
-	return "已用 " + format(ratio.times(100)) + "%"
 }
 
 function achFooter() {
 	let out = []
 	out.push("<div style='color:#c9b45e;text-align:left'>")
-	out.push("<b>刻痕的规矩（含数值预算，DESIGN.md §8.5）</b><br>")
+	out.push("<b>铭刻的规矩</b><br>")
 	out.push("　每枚铭刻：热量 ×" + format(D(ACH_BAL.perAch)) + "，当前共 " +
 		formatWhole(D(achievementCount())) + " 枚 → " + timesFormat(achInscriptionMult()) + "<br>")
 	out.push("　凝时里程碑 5：上述倍数再 ×" + formatWhole(D(ACH_BAL.monumentMult)) +
@@ -687,11 +672,8 @@ function achFooter() {
 	out.push("　「百万熔炉」×" + formatWhole(D(ACH_BAL.heatMillion)) + "　「千万熔炉」×" +
 		formatWhole(D(ACH_BAL.heatTenMillion)) + "（专属热量）<br>")
 	out.push("　「百锻成铭」×" + formatWhole(D(ACH_BAL.coreTempered)) + "＋「刻度之间」×" +
-		formatWhole(D(ACH_BAL.corePerfect)) + " → 炉芯产出 " + timesFormat(achExclusiveCoreMult()) +
-		"（上限 " + timesFormat(D(ACH_BAL.budgetCore)) + "）<br>")
-	out.push("　heat 通道当前 " + timesFormat(achHeatChannel()) + "，硬上限 " + timesFormat(D(ACH_BAL.budgetHeat)) +
-		"，全满理论值 " + timesFormat(achFullHeatBudget()) + (achOverBudget() ? "（<b>已顶到上限</b>）" : "") + "<br>")
-	out.push("　看不见的格位 = 未知铭刻：把鼠标停在上面，能读出口供。<br>")
+		formatWhole(D(ACH_BAL.corePerfect)) + " → 炉芯产出 " + timesFormat(achExclusiveCoreMult()) + "<br>")
+	out.push("　空着的格位是还没刻出的铭刻，把鼠标停在上面可以看条件。<br>")
 	out.push("　铭刻不参与任何重置：刻下的不会消失。")
 	out.push("</div>")
 	return out.join("")

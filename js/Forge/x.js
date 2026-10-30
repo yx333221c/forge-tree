@@ -319,7 +319,7 @@ addLayer("x", {
 	upgrades: {
 		11: {
 			title: "恒星图纸",
-			description: "<b>凝时</b>的升级在熔星重置中保留下来（§4）。<br><i>影响凝时（Tempo）层，由它的 doReset 读取。</i>",
+			description: "<b>凝时</b>的升级在熔星重置中保留下来。",
 			cost() { return xUpgCost(11) },
 			tooltip: "与凝时里程碑 0「保留反应可购件」叠加：任何一条都能留住凝时升级。",
 		},
@@ -335,7 +335,7 @@ addLayer("x", {
 		},
 		14: {
 			title: "余烬循环",
-			description() { return "重置后的初始热量 ×" + format(new Decimal(X_BAL.start14)) + "。<br><i>影响 startPoints（全局）。</i>" },
+			description() { return "重置后的初始热量 ×" + format(new Decimal(X_BAL.start14)) + "。<br><i>影响热量（全局）。</i>" },
 			cost() { return xUpgCost(14) },
 		},
 	},
@@ -347,7 +347,7 @@ addLayer("x", {
 		0: {
 			requirementDescription() { return "累计 " + formatWhole(new Decimal(X_BAL.msTotal[0])) + " 星核（当前 " + formatWhole(xTotal()) + "）" },
 			done() { return xTotal().gte(X_BAL.msTotal[0]) },
-			effectDescription: "熔星重置时保留<b>反应的可购项</b>与<b>熔炉燃料棒</b>（§4，由 h／r 的 doReset 读取）。",
+			effectDescription: "熔星重置时保留<b>反应的可购项</b>与<b>熔炉燃料棒</b>。",
 			tooltip: "同时也保留凝时的升级（与恒星图纸任一条满足即可）。",
 		},
 		1: {
@@ -468,12 +468,10 @@ addLayer("x", {
 	infoboxes: {
 		lore: {
 			title: "炉边记事 · 熔星",
-			body: "熔炉、锻台、反应釜、凝时槽——它们全都是同一件事的四个步骤：<br>" +
-				"把冷的那一边往你这边搬。<br><br>" +
-				"星核是最后一步。它不产生热量，它<b>决定</b>热量值多少。<br>" +
-				"当你手里攒够一千枚星核、并且真的交出了六段时间里的三段，" +
-				"你就不必再烧炉子了——你会成为发光的那一个。<br>" +
-				"点燃之后炉子还在响。留着它，把剩下的时间也刻完。",
+			body: "熔星是最后一步：把时序压成星核。星核不额外产热，但它抬高的倍率最大——" +
+				"热量、炉芯、锭条、触媒、时序的产出，以及重置后的起始热量，全都跟着涨。<br><br>" +
+				"攒够一千枚星核，并且完成三个凝时挑战，就能点燃恒星。<br>" +
+				"点燃扣掉那一千枚星核，但游戏不结束：星核的效果指数会再高一档，剩下的铭刻和挑战也还能继续做。",
 			titleStyle: { 'color': "#ffd700" },
 		},
 	},
@@ -525,7 +523,7 @@ function xEndHeader() {
 		return s + "需要先达成里程碑「累计 " + formatWhole(new Decimal(X_BAL.msTotal[1])) + " 星核」，" +
 			"结局按钮才会出现（当前累计 " + formatWhole(xTotal()) + "）。</div>"
 	}
-	s += "两个条件（消耗与挑战数由 mod.js 的 FORGE_END 统一规定）：<br>" +
+	s += "两个条件：<br>" +
 		"　① 持有星核 " + (xPoints().gte(xEndCost()) ? "<b style='color:#b6f5b1'>已满足</b>" : "未满足") + "：" +
 		fmtTarget(xPoints(), xEndCost(), "星核") + "<br>" +
 		"　② 已完成凝时挑战 " + (done >= need ? "<b style='color:#b6f5b1'>已满足</b>" : "未满足") + "：" +
@@ -565,8 +563,8 @@ function xFormulaReport() {
 	s += "<h3>熔星参数</h3>"
 	s += "星核 = （时序 ÷ " + formatWhole(new Decimal(X_BAL.requires)) + "）^ " + format(xStellarExp()) +
 		" × 乘数 " + format(xStellarMult()) + "<br>"
-	s += "　乘数 = foldMult(\"stellarGain\", 1)（全部来自别的层与本层的钩子）<br><br>"
-	s += "<b>本层给下游的加成</b><br>"
+	s += "　乘数全部来自熔星自己的里程碑，每档 ×" + formatWhole(new Decimal(X_BAL.stellarMs[0])) + "（当前 " + format(xStellarMult()) + "）<br><br>"
+	s += "<b>熔星给前面几层带来的加成</b><br>"
 	s += "　热量：" + timesFormat(xEffHeat()) + " × 升级 " + timesFormat(xHookHeatUpg()) + "<br>"
 	s += "　炉芯／锭条／触媒／时序产出：" + timesFormat(xEffGain()) + "<br>"
 	s += "　初始热量：" + timesFormat(xEffStart()) + " × 升级 " + timesFormat(xHookStartUpg()) + "<br>"

@@ -58,8 +58,6 @@ addLayer("stats", {
 				["blank", "6px"],
 				["display-text", function () { return stCountBlock() }],
 				["blank", "6px"],
-				["display-text", function () { return stBudgetBlock() }],
-				["blank", "6px"],
 				["display-text", function () { return stRouteBlock() }],
 				["blank", "6px"],
 				["display-text", function () { return stChallengeBlock() }],
@@ -227,37 +225,6 @@ function stLayerBlock() {
 	return out.join("")
 }
 
-// 数值预算读数（DESIGN.md §8.5）：把「全满时 heat 乘子」和当前占用直接摊开给玩家看。
-// 纯读：只调用 ach.js 的只读自检函数，且整个块包在 try 里 ——
-// ach.js 万一没落地（分层开发期），这里降级为一行提示而不是炸掉整帧。
-function stBudgetBlock() {
-	let cur = decimalOne, cap = decimalOne, full = decimalOne, over = false
-	try {
-		if (typeof achHeatChannel === "function") cur = D(achHeatChannel())
-		if (typeof ACH_BAL !== "undefined" && ACH_BAL) {
-			cap = D(ACH_BAL.budgetHeat)
-			full = D(ACH_BAL.budgetHeat)
-			if (typeof achFullHeatBudget === "function") full = D(achFullHeatBudget())
-		}
-		over = (typeof achOverBudget === "function") ? !!achOverBudget() : false
-	} catch (e) {
-		return "<div style='text-align:left;color:#dff2ef'><b>数值预算</b><br>　（铭刻层未就绪，暂不显示）</div>"
-	}
-	let core = decimalOne
-	let capCore = decimalOne
-	try {
-		if (typeof ACH_BAL !== "undefined" && ACH_BAL && ACH_BAL.budgetCore > 0) capCore = D(ACH_BAL.budgetCore)
-		if (typeof achExclusiveCoreMult === "function") core = D(achExclusiveCoreMult())
-	} catch (e) { /* 保持 1 */ }
-	let ratio = decimalZero
-	try { ratio = cur.div(cap).min(1).max(0) } catch (e) { ratio = decimalZero }
-	return "<div style='text-align:left;color:#dff2ef'><b>数值预算（DESIGN.md §8.5）</b><br>" +
-		"　heat 通道：当前 " + stRaw(cur) + "×　/　硬上限 " + stRaw(cap) + "×　（已用 " +
-		stRaw(ratio.times(100)) + "%）" + (over ? "　<b style='color:#ff9a3c'>已顶到上限</b>" : "") + "<br>" +
-		"　heat 全满理论值：" + stRaw(full) + "×（超出部分由夹持削掉）<br>" +
-		"　coreGain 通道：当前 " + stRaw(core) + "×　/　硬上限 " + stRaw(capCore) + "×</div>"
-}
-
 function stCountBlock() {
 	let done = 0, maxed = 0
 	try {
@@ -290,7 +257,7 @@ function stRouteBlock() {
 	for (let i = 0; i < groups.length; i++) {
 		let g = groups[i]
 		let chosen = stRoute([g])
-		lines.push("　" + g.group + "（" + ST_BAL.names[g.l] + " " + g.a + "／" + g.b + " 互斥）：<b>" + chosen + "</b>")
+		lines.push("　" + g.group + "：<b>" + chosen + "</b>")
 	}
 	return "<div style='text-align:left;color:#dff2ef'><b>当前所选的互斥路线</b><br>" + lines.join("<br>") + "</div>"
 }
