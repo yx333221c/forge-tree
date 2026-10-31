@@ -67,9 +67,18 @@
 	border-color: rgba(0, 0, 0, 0.125);
 	color: rgba(0, 0, 0, 0.5);
 	width: 300px;
-	height: 300px;
-	font-size: 15px;
-	border-radius: 33.33%;
+	/* 原先是固定 height:300px + font-size:15px：我们的挑战写满了「限制/目标/奖励/当前」，
+	   内容一长就溢出到椭圆外面，只能看到描述、目标被截断。
+	   改成与 .upg 相同的「min-height + 自动长高」模式，字号收到与其它节点一致。 */
+	min-height: 300px;
+	height: auto;
+	font-size: 12px;
+	/* 圆角用固定 px：百分比圆角会随节点长高而变大，文字会压到弧边上。
+	   box-sizing 让 padding 算在 300px 内，保持一行三个不换行（全局没有设 border-box）。 */
+	box-sizing: border-box;
+	padding: 18px 26px;
+	border-radius: 40px;
+	overflow: visible;
 }
 
 .challenge.done {

@@ -74,8 +74,13 @@ var FORGE_HOOKS = [
 ]
 
 // ---------- 重置 ----------
-// 永远保留的字段：解锁状态、累计量、里程碑、计数器
-const FORGE_ALWAYS_KEEP = ["unlocked", "total", "best", "milestones", "resets", "vents", "ignited"]
+// 永远保留的字段：解锁状态、累计量、里程碑、计数器，以及**自动化开关**。
+// 自动化开关属于玩家的偏好，不是进度资源：以前不在保留表里，导致每次高层重置
+// 都把玩家辛苦打开的自动泄压/自动购买/自动加注全部悄悄关回 off，必须重新点一遍。
+// forgeKeepList 会按「该层是否存在这个字段」过滤，所以这里一次列全五层的开关是安全的。
+const FORGE_ALWAYS_KEEP = ["unlocked", "total", "best", "milestones", "resets", "vents", "ignited",
+	"autoVent", "autoBuy", "autoFill", "autoForge", "autoRun",
+	"autoAll", "autoAllSync", "autoFillAll", "autoHearth", "autoReaction"]
 
 function forgeKeepList(layer, extra) {
 	let keep = FORGE_ALWAYS_KEEP.slice()

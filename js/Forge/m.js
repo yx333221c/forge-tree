@@ -683,8 +683,6 @@ addLayer("m", {
 		},
 		"详情": {
 			content: [
-				["infobox", "lore"],
-				["blank", "12px"],
 				["infobox", "ledger"],
 				["blank", "12px"],
 				["display-text", function() { return mStatusText() }],
@@ -696,6 +694,9 @@ addLayer("m", {
 				}],
 				["blank", "10px"],
 				["bar", "forgeGauge"],
+				// 五层统一：世界观放在详情最末尾（原先在顶部，与 h/t/x 不一致）
+				["blank", "14px"],
+				["infobox", "lore"],
 			],
 		},
 	},

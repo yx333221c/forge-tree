@@ -293,7 +293,9 @@ function rStatusText() {
 	lines.push("<h3>反应读数</h3>")
 	lines.push("原料锭条 <b>" + formatWhole(rIngot()) + "</b>　持有触媒 <b>" + formatWhole(rPoints()) +
 		"</b>　最高 " + formatWhole(rBest()) + "　累计 " + formatWhole(rTotal()) + "　反应 " + formatWhole(rResets()) + " 次<br>")
-	lines.push("成本模型：下一手需 " + formatWhole(req) + " × " + timesFormat(cost) + " × " +
+	// 这里是数学表达式，× 是运算符，所以 cost 用 format 而不是 timesFormat
+	// （timesFormat 自带「×」后缀，会让公式变成「0.85× × 3^…」）
+	lines.push("成本模型：下一手需 " + formatWhole(req) + " × " + format(cost) + " × " +
 		format(new Decimal(R_BAL.base)) + "^（持有 ÷ 产出倍数） 锭条　<b>成本倍数 &lt;1 才是变强</b><br>")
 	lines.push("产出倍数：" + timesFormat(direct) + "（越大越好）　成本指数：" + format(rCostExp()) + "<br>")
 	lines.push("下一手：需 " + formatWhole(rNextAtText()) + " 锭条 → <b>" + formatWhole(rGainText()) + "</b> 触媒" +
@@ -748,8 +750,6 @@ addLayer("r", {
 		},
 		"详情": {
 			content: [
-				["infobox", "lore"],
-				["blank", "12px"],
 				["infobox", "ledger"],
 				["blank", "12px"],
 				["display-text", function() { return rStatusText() }],
@@ -763,6 +763,9 @@ addLayer("r", {
 				}],
 				["blank", "10px"],
 				["bar", "conversion"],
+				// 五层统一：世界观放在详情最末尾（原先在顶部，与 h/t/x 不一致）
+				["blank", "14px"],
+				["infobox", "lore"],
 			],
 		},
 	},

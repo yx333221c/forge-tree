@@ -583,8 +583,9 @@ function forgeTechReport() {
 	s += "炉芯公式指数：<b>" + format(hCoreExp()) + "</b>（基础 " + H_BAL.baseExp + " ＋ 加成 " + format(hCoreExpBonus()) + "）<br>"
 	s += "炉芯产出乘数：<b>" + timesFormat(hCoreGainMult()) + "</b><br>"
 	s += "炉压增速：<b>" + format(hPressureRate()) + "/s</b>　炉压指数：<b>" + format(hPressureExp()) + "</b><br>"
-	s += "泄压：<b>" + format(H_BAL.ventSeconds) + " 秒产量</b> × 阀门 " + timesFormat(hVentValue()) +
-		" × 余烬 " + timesFormat(D(1).add(hEmberBonus())) + "<br>"
+	// timesFormat 自带「×」，这里作分隔符不能再写 " × "（会渲染成「3.00× × 余烬」）
+	s += "泄压：<b>" + format(H_BAL.ventSeconds) + " 秒产量</b>　阀门 " + timesFormat(hVentValue()) +
+		"　余烬 " + timesFormat(D(1).add(hEmberBonus())) + "<br>"
 	// 引擎语义（js/game.js: generatePoints 用 resetGain × passiveGeneration）：
 	// passiveGeneration 是「每秒完成几次熔炼」，不是「每秒几个炉芯」。单次可得炉芯随进度水涨船高，
 	// 所以这里两个数都给出，避免玩家把 1 读成 1 炉芯/秒。

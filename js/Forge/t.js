@@ -804,7 +804,10 @@ addLayer("t", {
 	componentStyles: {
 		"prestige-button"() { return { 'width': "250px", 'height': "86px" } },
 		"clickable"() { return { 'height': "160px", 'width': "215px" } },
-		"challenge"() { return { 'height': "210px", 'width': "250px" } },
+		// 挑战节点只在这里定宽度，高度交给 CSS（components.css 的 .challenge 用
+		// min-height + height:auto 让节点随内容长高）。原先这里写死 height:210px，
+		// 比 CSS 的 300px 还矮，正是「描述占满、目标被截断」的直接原因。
+		"challenge"() { return { 'width': "250px" } },
 	},
 
 	// ============================================================
@@ -917,11 +920,22 @@ function tHourglassTrigger() {
 	player.t.clickables[12] = "已凝 " + formatWhole(player.t.hourglasses)
 }
 
+// 总开关一次拧动全部分开关。原先只拧 t 自己的三个，h/m/r 的分开关从不动，
+// 于是里程碑 0 的「全局自动化」名不副实。现在把熔炉／锻冶／反应／凝时四层的开关一起拧过去。
+// （熔星没有开关字段：它的自动化由升级「自动熔星」控制，不在总开关之列。）
+// 安全性：各层实际生效仍要过自己的里程碑（autoOn(flag && ms)），
+// 所以提前打开未解锁的开关不会凭空给东西，只是把选择状态记下来。
 function tAutoAllSet(on) {
 	if (!forgeHasLayer("t")) return
 	player.t.autoFillAll = !!on
 	player.t.autoHearth = !!on
 	player.t.autoReaction = !!on
+	// 低层的自动化开关（缺层时跳过，不抛异常）
+	var subs = { h: ["autoVent", "autoBuy", "autoFill"], m: ["autoForge", "autoBuy", "autoFill"], r: ["autoBuy", "autoFill", "autoRun"] }
+	for (var L in subs) {
+		if (!forgeHasLayer(L)) continue
+		for (var i = 0; i < subs[L].length; i++) player[L][subs[L][i]] = !!on
+	}
 }
 
 // ============================================================
@@ -1012,10 +1026,11 @@ function tFormulaReport() {
 		"　过载 " + timesFormat(tHookChrononSurge()) + "<br>"
 	s += "　指数 = 基础 " + T_BAL.baseExp + " ＋ 加成 " + format(tFoldAddSafe("chrononExpBonus", 0)) + "<br><br>"
 
+	// timesFormat 的返回值本身以「×」结尾，分隔符不能再写 " × "，否则渲染成「1.00× × 升级」。
 	s += "<b>凝时给前面几层带来的加成</b><br>"
-	s += "　热量：" + timesFormat(tEffHeat()) + " × 升级 " + timesFormat(tHookHeatUpg()) +
-		" × 挑战奖励 " + timesFormat(tHookHeatReward()) + "<br>"
-	s += "　炉芯／锭条产出：" + timesFormat(tEffGain()) + " × 升级 " + timesFormat(tHookCoreUpg()) + "<br>"
+	s += "　热量：" + timesFormat(tEffHeat()) + "　升级 " + timesFormat(tHookHeatUpg()) +
+		"　挑战奖励 " + timesFormat(tHookHeatReward()) + "<br>"
+	s += "　炉芯／锭条产出：" + timesFormat(tEffGain()) + "　升级 " + timesFormat(tHookCoreUpg()) + "<br>"
 	s += "　炉芯／锭条公式指数：+" + format(tEffMidExp()) + "（相位鼓风另 +" + format(new Decimal(T_BAL.blast21)) + "）<br>"
 	s += "　初始热量：" + timesFormat(tEffStart()) + "<br>"
 	s += "　熔炉自动熔炼：" + forgeHearthAutoGen() + " 次/秒　自动反应：" + (forgeAutoReaction() ? "已开启" : "未开启") + "<br>"

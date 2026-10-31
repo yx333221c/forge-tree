@@ -117,7 +117,11 @@ player.h.vents       Decimal  泄压次数（h 层专用）
 
 `doReset(layer)` 时（TMT 原生行为）：`player.points` 归零（row0）或 = `getStartPoints()`（row>0），并对 row..0 调用每层的 `doReset(resettingLayer)`。
 
-**统一约定**：任何被重置的层，都保留 `unlocked / total / best / milestones / resets / vents`（由 `forgeDoReset` 负责）；其余（points、upgrades、buyables、clickables 状态、spentOnBuyables、专属变量）默认清空。特殊保留如下：
+**统一约定**：任何被重置的层，都保留 `unlocked / total / best / milestones / resets / vents`（由 `forgeDoReset` 负责）；其余（points、upgrades、buyables、clickables 状态、spentOnBuyables、专属变量）默认清空。
+
+**自动化开关也属于保留项**（`autoVent / autoBuy / autoFill / autoForge / autoRun / autoAll / autoAllSync / autoFillAll / autoHearth / autoReaction`）：它们是玩家偏好而不是进度资源，早期不在 `FORGE_ALWAYS_KEEP` 里，导致每次高层重置都把玩家打开的自动泄压/自动购买/自动加注悄悄关回 off，必须重新点一遍 —— 实测确认过的体验缺陷，已修。各层实际生效仍要过自己的里程碑（`autoOn(flag && ms)`），所以提前置位不会凭空给东西。
+
+特殊保留如下：
 
 | 触发者 | 影响 | 保留规则 |
 |---|---|---|

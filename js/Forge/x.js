@@ -564,10 +564,11 @@ function xFormulaReport() {
 	s += "星核 = （时序 ÷ " + formatWhole(new Decimal(X_BAL.requires)) + "）^ " + format(xStellarExp()) +
 		" × 乘数 " + format(xStellarMult()) + "<br>"
 	s += "　乘数全部来自熔星自己的里程碑，每档 ×" + formatWhole(new Decimal(X_BAL.stellarMs[0])) + "（当前 " + format(xStellarMult()) + "）<br><br>"
+	// timesFormat 已自带「×」，分隔符不能再写 " × "（会渲染成「1.00× × 升级」）
 	s += "<b>熔星给前面几层带来的加成</b><br>"
-	s += "　热量：" + timesFormat(xEffHeat()) + " × 升级 " + timesFormat(xHookHeatUpg()) + "<br>"
+	s += "　热量：" + timesFormat(xEffHeat()) + "　升级 " + timesFormat(xHookHeatUpg()) + "<br>"
 	s += "　炉芯／锭条／触媒／时序产出：" + timesFormat(xEffGain()) + "<br>"
-	s += "　初始热量：" + timesFormat(xEffStart()) + " × 升级 " + timesFormat(xHookStartUpg()) + "<br>"
+	s += "　初始热量：" + timesFormat(xEffStart()) + "　升级 " + timesFormat(xHookStartUpg()) + "<br>"
 	s += "　效果指数 = 1 ＋ 里程碑2 " + (xMs(2) ? format(new Decimal(X_BAL.ms2BonusExp)) : "0") +
 		" ＋ 点燃后 " + (xIgnited() ? format(new Decimal(X_BAL.igniteBonusExp)) : "0") + "<br>"
 	s += "</div>"
